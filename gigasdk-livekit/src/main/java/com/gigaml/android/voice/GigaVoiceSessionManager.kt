@@ -7,6 +7,7 @@ import androidx.core.content.ContextCompat
 import com.gigaml.android.api.GigaApiClient
 import com.gigaml.android.api.RoomResponse
 import com.gigaml.android.model.TranscriptEntry
+import io.livekit.android.annotations.Beta
 import io.livekit.android.LiveKit
 import io.livekit.android.events.RoomEvent
 import io.livekit.android.events.collect
@@ -129,6 +130,7 @@ class GigaVoiceSessionManager(
         scope.cancel()
     }
 
+    @OptIn(Beta::class)
     private fun observeRoomEvents(room: Room) {
         roomEventsJob?.cancel()
         roomEventsJob = scope.launch {
@@ -167,9 +169,10 @@ class GigaVoiceSessionManager(
                             return@collect
                         }
 
+                        val participantIdentity = event.participant?.identity?.toString()
                         val isUserSpeaker =
-                            event.participant?.identity == room.localParticipant.identity ||
-                                event.participant?.identity?.startsWith("user_") == true
+                            participantIdentity == room.localParticipant.identity.toString() ||
+                                participantIdentity?.startsWith("user_") == true
 
                         val nextEntry = TranscriptEntry(
                             id = latestSegment.id,
@@ -187,6 +190,8 @@ class GigaVoiceSessionManager(
                             )
                         }
                     }
+
+                    else -> Unit
                 }
             }
         }

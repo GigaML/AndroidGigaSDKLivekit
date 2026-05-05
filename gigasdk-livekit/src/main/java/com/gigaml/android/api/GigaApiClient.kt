@@ -1,7 +1,6 @@
 package com.gigaml.android.api
 
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -91,14 +90,19 @@ data class GigaApiClientConfig(
 
 class GigaApiClient(
     private val config: GigaApiClientConfig,
-    private val httpClient: OkHttpClient = OkHttpClient(),
-    private val json: Json = Json {
-        ignoreUnknownKeys = true
-        explicitNulls = false
-    },
+    private val httpClient: OkHttpClient,
+    private val json: Json,
 ) {
+    constructor(config: GigaApiClientConfig) : this(
+        config = config,
+        httpClient = OkHttpClient(),
+        json = Json {
+            ignoreUnknownKeys = true
+        },
+    )
+
     suspend fun fetchConfig(): AppConfigResponse =
-        requestJson(
+        requestJsonWithoutBody(
             endpoint = config.endpoints.config,
             method = "GET",
             fallbackMessage = "Failed to load app config.",
@@ -144,6 +148,20 @@ class GigaApiClient(
             fallbackMessage = "Failed to close chat session.",
         )
 
+    private suspend inline fun <reified T> requestJsonWithoutBody(
+        endpoint: String,
+        method: String,
+        fallbackMessage: String,
+    ): T {
+        val request = Request.Builder()
+            .url(resolveEndpoint(config.baseUrl, endpoint))
+            .headers(buildHeaders(hasBody = false))
+            .method(method, null)
+            .build()
+
+        return executeRequest(request, fallbackMessage)
+    }
+
     private suspend inline fun <reified T, reified B> requestJson(
         endpoint: String,
         method: String,
@@ -160,6 +178,13 @@ class GigaApiClient(
             )
             .build()
 
+        return executeRequest(request, fallbackMessage)
+    }
+
+    private suspend inline fun <reified T> executeRequest(
+        request: Request,
+        fallbackMessage: String,
+    ): T {
         val response = httpClient.newCall(request).await()
         response.use { nextResponse ->
             val payload = nextResponse.body?.string().orEmpty()
