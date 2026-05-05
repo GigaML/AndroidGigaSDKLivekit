@@ -6,6 +6,7 @@ Native Android wrapper and sample app for Giga voice and chat flows built on top
 
 - `gigasdk-livekit/`: reusable Android library module
 - `sample/`: minimal Jetpack Compose sample app that exercises the library
+- `server/`: local example backend for the sample app
 
 The sample app mirrors the same backend contract used by the React Native reference projects:
 
@@ -62,13 +63,9 @@ The sample app defaults to:
 
 ## Backend Requirement
 
-This repo does not include Giga secrets or a standalone backend. To get voice and chat working, you need a backend listening on port `8787` on your host machine that implements the contract above.
+This repo includes a local example backend under `server/`. To get voice and chat working, you need to run that backend on port `8787` with your Giga credentials and one agent identifier configured.
 
-The easiest path is to use the existing reference server from the sibling repo:
-
-- `../ReactNativeGiga/server`
-
-Create `ReactNativeGiga/server/.env` from `ReactNativeGiga/server/.env.example` and set:
+Create `server/.env` from `server/.env.example` and set:
 
 ```dotenv
 PORT=8787
@@ -87,7 +84,7 @@ Use exactly one of:
 Then start the reference backend:
 
 ```bash
-cd ../ReactNativeGiga/server
+cd server
 npm install
 npm run dev
 ```
