@@ -70,7 +70,7 @@ Create `server/.env` from `server/.env.example` and set:
 ```dotenv
 PORT=8787
 GIGA_CHAT_URL=https://agents.gigaml.com/v1/chat/rest
-GIGA_ROOM_URL=https://giga-support.prod-aws-porter.giga.ai/agents/external/voice/get_room_id
+GIGA_ROOM_URL=https://giga-support.prod-aws-porter.giga.ai/agents/external/voice/create_room
 GIGA_API_KEY=your_giga_org_api_key
 GIGA_AGENT_ID=
 GIGA_AGENT_TEMPLATE_ID=agent_template_your_default_template
@@ -83,7 +83,7 @@ Use exactly one of:
 - `GIGA_AGENT_ID`
 - `GIGA_AGENT_TEMPLATE_ID`
 
-Use the `get_room_id` room endpoint when you want voice room creation to work with `GIGA_AGENT_TEMPLATE_ID`.
+Use the `create_room` room endpoint when you want voice room creation to work with `GIGA_AGENT_TEMPLATE_ID`.
 
 If you want the launcher to show a dropdown instead of raw initialization JSON, set `GIGA_INITIALIZATION_OPTIONS` to a JSON array of preset objects. Each preset supports `id`, `label`, optional `description`, and `values`.
 
