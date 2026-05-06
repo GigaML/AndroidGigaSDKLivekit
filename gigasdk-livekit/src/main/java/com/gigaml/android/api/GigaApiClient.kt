@@ -60,6 +60,7 @@ data class ChatMessage(
     val messageId: String? = null,
     val role: String,
     val text: String,
+    val imageUrls: List<String> = emptyList(),
 )
 
 @Serializable
