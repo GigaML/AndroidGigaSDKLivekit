@@ -3,9 +3,10 @@ package com.gigaml.android.voice
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.util.Log
 import androidx.core.content.ContextCompat
 import com.gigaml.android.api.GigaApiClient
-import com.gigaml.android.api.RoomResponse
+import com.gigaml.android.api.parseInitializationValues
 import com.gigaml.android.model.TranscriptEntry
 import io.livekit.android.annotations.Beta
 import io.livekit.android.LiveKit
@@ -22,30 +23,21 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.serialization.json.JsonObject
-
-enum class VoiceConnectionState {
-    IDLE,
-    CONNECTING,
-    CONNECTED,
-}
-
-data class VoiceSessionState(
-    val connectionState: VoiceConnectionState = VoiceConnectionState.IDLE,
-    val error: String? = null,
-    val isLoading: Boolean = false,
-    val isMicrophoneEnabled: Boolean = false,
-    val room: RoomResponse? = null,
-    val transcript: List<TranscriptEntry> = emptyList(),
-)
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlin.text.decodeToString
 
 class GigaVoiceSessionManager(
-    private val appContext: Context,
+    appContext: Context,
     private val client: GigaApiClient,
 ) {
+    private val appContext = appContext.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val audioSessionController = AndroidAudioSessionController(appContext)
+    private val audioSessionController = AndroidAudioSessionController(this.appContext)
     private val _state = MutableStateFlow(VoiceSessionState())
+    private val startMutex = Mutex()
 
     private var activeRoom: Room? = null
     private var roomEventsJob: Job? = null
@@ -64,39 +56,70 @@ class GigaVoiceSessionManager(
             return false
         }
 
-        stop()
-        _state.value = VoiceSessionState(
-            connectionState = VoiceConnectionState.CONNECTING,
-            isLoading = true,
-        )
+        if (!startMutex.tryLock()) {
+            Log.d(TAG, "Ignoring duplicate voice start request while startup is already in progress.")
+            return false
+        }
 
-        return try {
+        try {
+            stop()
+            _state.value = VoiceSessionState(
+                connectionState = VoiceConnectionState.CONNECTING,
+                isLoading = true,
+            )
+
             audioSessionController.start()
-            val roomResponse = client.createVoiceRoom(initializationValues)
-            val nextRoom = LiveKit.create(appContext)
-            activeRoom = nextRoom
-            observeRoomEvents(nextRoom)
-            nextRoom.connect(roomResponse.serverUrl, roomResponse.participantToken)
-            nextRoom.localParticipant.setMicrophoneEnabled(true)
 
-            _state.update {
-                it.copy(
-                    connectionState = VoiceConnectionState.CONNECTED,
-                    error = null,
-                    isLoading = false,
-                    isMicrophoneEnabled = nextRoom.localParticipant.isMicrophoneEnabled,
-                    room = roomResponse,
+            Log.d(TAG, "Creating voice room.")
+            val roomResponse = try {
+                client.createVoiceRoom(initializationValues)
+            } catch (error: Exception) {
+                return handleStartFailure("Failed to create voice room.", error)
+            }
+
+            Log.d(
+                TAG,
+                "Voice room created roomId=${roomResponse.roomId} roomName=${roomResponse.roomName}.",
+            )
+
+            val room = LiveKit.create(appContext)
+            activeRoom = room
+            observeRoomEvents(room)
+
+            try {
+                Log.d(TAG, "Connecting to LiveKit room.")
+                room.connect(roomResponse.serverUrl, roomResponse.participantToken)
+            } catch (error: Exception) {
+                return handleStartFailure("Failed to connect to the voice room.", error)
+            }
+
+            val microphoneEnabled = try {
+                Log.d(TAG, "Enabling local microphone.")
+                room.localParticipant.setMicrophoneEnabled(true)
+            } catch (error: Exception) {
+                return handleStartFailure(
+                    "Connected to the voice room, but failed to enable the microphone.",
+                    error,
                 )
             }
-            true
-        } catch (error: Exception) {
-            handleTerminalVoiceFailure(error.message ?: "Failed to create voice room.")
-            false
+
+            _state.value = VoiceSessionState(
+                connectionState = VoiceConnectionState.CONNECTED,
+                isLoading = false,
+                isMicrophoneEnabled = microphoneEnabled,
+                room = roomResponse,
+            )
+
+            Log.d(TAG, "Voice session connected successfully.")
+            return true
+        } finally {
+            startMutex.unlock()
         }
     }
 
     suspend fun toggleMicrophone() {
         val room = activeRoom ?: return
+
         try {
             room.localParticipant.setMicrophoneEnabled(!room.localParticipant.isMicrophoneEnabled)
             _state.update {
@@ -106,7 +129,9 @@ class GigaVoiceSessionManager(
                 )
             }
         } catch (error: Exception) {
-            setError(error.message ?: "Failed to update microphone state.")
+            val message = error.message ?: "Failed to update microphone state."
+            Log.e(TAG, message, error)
+            setError(message)
         }
     }
 
@@ -116,8 +141,8 @@ class GigaVoiceSessionManager(
 
         activeRoom?.disconnect()
         activeRoom = null
-        audioSessionController.stop()
 
+        audioSessionController.stop()
         _state.value = VoiceSessionState()
     }
 
@@ -137,56 +162,65 @@ class GigaVoiceSessionManager(
             room.events.collect { event ->
                 when (event) {
                     is RoomEvent.Reconnecting -> {
-                        _state.update {
-                            it.copy(connectionState = VoiceConnectionState.CONNECTING)
-                        }
+                        Log.w(TAG, "Voice room is reconnecting.")
+                        _state.update { it.copy(connectionState = VoiceConnectionState.CONNECTING) }
                     }
 
                     is RoomEvent.Reconnected -> {
-                        _state.update {
-                            it.copy(connectionState = VoiceConnectionState.CONNECTED)
-                        }
+                        Log.d(TAG, "Voice room reconnected.")
+                        _state.update { it.copy(connectionState = VoiceConnectionState.CONNECTED) }
                     }
 
                     is RoomEvent.Disconnected -> {
-                        handleTerminalVoiceFailure(event.error?.message)
+                        handleTerminalVoiceFailure(
+                            describeFailure("Voice session disconnected.", event.error?.message),
+                            event.error,
+                        )
                     }
 
                     is RoomEvent.FailedToConnect -> {
-                        handleTerminalVoiceFailure(event.error.message)
+                        handleTerminalVoiceFailure(
+                            describeFailure("Failed to connect to the voice room.", event.error.message),
+                            event.error,
+                        )
                     }
 
                     is RoomEvent.DataReceived -> {
                         if (readDataTopic(event) == "agent_error") {
-                            setError(parseAgentError(event.data.decodeToString()))
+                            val message = parseAgentError(event.data.decodeToString())
+                            Log.e(TAG, "Agent error received: $message")
+                            setError(message)
                         }
                     }
 
                     is RoomEvent.TranscriptionReceived -> {
-                        val latestSegment = event.transcriptionSegments.lastOrNull() ?: return@collect
-                        val transcriptText = latestSegment.text.trim()
-                        if (latestSegment.id.isBlank() || transcriptText.isBlank()) {
+                        val segment = event.transcriptionSegments.lastOrNull() ?: return@collect
+                        val text = segment.text.trim()
+                        if (segment.id.isBlank() || text.isBlank()) {
                             return@collect
                         }
 
-                        val participantIdentity = event.participant?.identity?.toString()
-                        val isUserSpeaker =
-                            participantIdentity == room.localParticipant.identity.toString() ||
+                        val participantIdentity = event.participant?.identity?.value
+                        val isUserTranscript =
+                            participantIdentity == room.localParticipant.identity?.value ||
                                 participantIdentity?.startsWith("user_") == true
 
-                        val nextEntry = TranscriptEntry(
-                            id = latestSegment.id,
-                            role = if (isUserSpeaker) {
+                        val transcriptEntry = TranscriptEntry(
+                            id = segment.id,
+                            role = if (isUserTranscript) {
                                 TranscriptEntry.Role.USER
                             } else {
                                 TranscriptEntry.Role.ASSISTANT
                             },
-                            text = transcriptText,
+                            text = text,
                         )
 
                         _state.update { currentState ->
                             currentState.copy(
-                                transcript = upsertTranscriptEntry(currentState.transcript, nextEntry),
+                                transcript = upsertTranscriptEntry(
+                                    currentState.transcript,
+                                    transcriptEntry,
+                                ),
                             )
                         }
                     }
@@ -197,16 +231,28 @@ class GigaVoiceSessionManager(
         }
     }
 
-    private fun handleTerminalVoiceFailure(message: String?) {
+    private fun handleTerminalVoiceFailure(
+        message: String?,
+        error: Throwable? = null,
+    ) {
         roomEventsJob?.cancel()
         roomEventsJob = null
+        activeRoom?.disconnect()
         activeRoom = null
         audioSessionController.stop()
 
-        _state.update {
-            it.copy(
+        val resolvedMessage = message?.takeIf { it.isNotBlank() } ?: _state.value.error
+        when {
+            error != null && resolvedMessage != null -> Log.e(TAG, resolvedMessage, error)
+            error != null -> Log.e(TAG, "Voice session failed.", error)
+            resolvedMessage != null -> Log.w(TAG, resolvedMessage)
+            else -> Log.w(TAG, "Voice session ended.")
+        }
+
+        _state.update { currentState ->
+            currentState.copy(
                 connectionState = VoiceConnectionState.IDLE,
-                error = message ?: it.error,
+                error = resolvedMessage,
                 isLoading = false,
                 isMicrophoneEnabled = false,
                 room = null,
@@ -214,35 +260,64 @@ class GigaVoiceSessionManager(
         }
     }
 
-    private fun parseAgentError(payload: String): String =
+    private fun handleStartFailure(
+        stageMessage: String,
+        error: Exception,
+    ): Boolean {
+        handleTerminalVoiceFailure(
+            message = describeFailure(stageMessage, error.message),
+            error = error,
+        )
+        return false
+    }
+
+    private fun parseAgentError(rawMessage: String): String =
         runCatching {
-            val errorField = com.gigaml.android.api.parseInitializationValues(payload)
+            val errorValue = parseInitializationValues(rawMessage)
                 ?.get("error")
-                ?.toString()
-                ?.trim('"')
-            errorField?.takeIf { it.isNotBlank() } ?: payload
-        }.getOrDefault(payload)
+                ?.let { it as? JsonPrimitive }
+                ?.contentOrNull
+                ?.takeIf { it.isNotBlank() }
+            errorValue ?: rawMessage
+        }.getOrDefault(rawMessage)
 
     private fun upsertTranscriptEntry(
-        currentEntries: List<TranscriptEntry>,
-        nextEntry: TranscriptEntry,
+        transcript: List<TranscriptEntry>,
+        entry: TranscriptEntry,
     ): List<TranscriptEntry> {
-        val existingIndex = currentEntries.indexOfFirst { it.id == nextEntry.id }
-        if (existingIndex < 0) {
-            return currentEntries + nextEntry
+        val index = transcript.indexOfFirst { it.id == entry.id }
+        if (index < 0) {
+            return transcript + entry
         }
 
-        return currentEntries.mapIndexed { index, entry ->
-            if (index == existingIndex) {
-                nextEntry
-            } else {
+        return transcript.mapIndexed { currentIndex, currentEntry ->
+            if (currentIndex == index) {
                 entry
+            } else {
+                currentEntry
             }
         }
     }
 
     private fun readDataTopic(event: RoomEvent.DataReceived): String? =
         runCatching {
-            event.javaClass.getMethod("getTopic").invoke(event) as? String
-        }.getOrNull()
+            event::class.java.getMethod("getTopic").invoke(event) as? String
+        }.getOrNull() ?: event.topic
+
+    private fun describeFailure(stageMessage: String, detail: String?): String {
+        val normalizedDetail = detail?.trim()?.trimEnd('.')?.takeIf { it.isNotBlank() }
+        if (normalizedDetail == null) {
+            return stageMessage
+        }
+
+        if (normalizedDetail.equals(stageMessage.trimEnd('.'), ignoreCase = true)) {
+            return stageMessage
+        }
+
+        return "$stageMessage $normalizedDetail."
+    }
+
+    private companion object {
+        private const val TAG = "GigaVoiceSession"
+    }
 }

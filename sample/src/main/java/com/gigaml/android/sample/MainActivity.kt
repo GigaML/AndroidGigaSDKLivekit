@@ -7,7 +7,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,17 +21,28 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Button
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.Typography
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -42,18 +55,24 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.gigaml.android.api.AppConfigResponse
 import com.gigaml.android.api.GigaApiClient
 import com.gigaml.android.api.GigaApiClientConfig
+import com.gigaml.android.api.InitializationOption
 import com.gigaml.android.api.emptyInitializationValues
-import com.gigaml.android.api.parseInitializationValues
-import com.gigaml.android.api.shortIdentifier
 import com.gigaml.android.chat.GigaChatSessionManager
 import com.gigaml.android.chat.GigaChatSessionState
 import com.gigaml.android.model.TranscriptEntry
@@ -66,8 +85,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
-                Surface {
+            MaterialTheme(
+                colorScheme = SampleBrandColorScheme,
+                typography = SampleBrandTypography,
+            ) {
+                Surface(color = MaterialTheme.colorScheme.background) {
                     SampleApp(applicationContext)
                 }
             }
@@ -90,7 +112,6 @@ private fun SampleApp(
 
     var baseUrl by rememberSaveable { mutableStateOf(defaultServerUrl) }
     var composerValue by rememberSaveable { mutableStateOf("") }
-    var initializationJson by rememberSaveable { mutableStateOf("{}") }
     var launcherError by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingVoiceLaunch by rememberSaveable { mutableStateOf(false) }
     var screen by rememberSaveable { mutableStateOf(SampleScreen.Launcher) }
@@ -98,11 +119,11 @@ private fun SampleApp(
     var configError by remember { mutableStateOf<String?>(null) }
     var isConfigLoading by remember { mutableStateOf(true) }
 
-    val initializationValues = remember(initializationJson) {
-        parseInitializationValues(initializationJson) ?: emptyInitializationValues()
+    val initializationOptions = remember(config?.initializationOptions) {
+        buildInitializationOptions(config?.initializationOptions.orEmpty())
     }
-    val hasValidInitialization = remember(initializationJson) {
-        parseInitializationValues(initializationJson) != null
+    val initializationValues = remember(initializationOptions) {
+        initializationOptions.first().values
     }
     val apiClient = remember(baseUrl) {
         GigaApiClient(
@@ -119,6 +140,8 @@ private fun SampleApp(
     }
     val voiceState by voiceSessionManager.state.collectAsStateWithLifecycle()
     val chatState by chatSessionManager.state.collectAsStateWithLifecycle()
+    val isVoiceStarting = voiceState.isLoading || pendingVoiceLaunch
+    val isChatStarting = chatState.isStarting
 
     DisposableEffect(voiceSessionManager, chatSessionManager) {
         onDispose {
@@ -141,6 +164,28 @@ private fun SampleApp(
         isConfigLoading = false
     }
 
+    fun launchVoiceSession() {
+        coroutineScope.launch {
+            if (voiceSessionManager.start(initializationValues)) {
+                launcherError = null
+                screen = SampleScreen.Voice
+            } else {
+                launcherError = voiceSessionManager.state.value.error
+            }
+        }
+    }
+
+    fun launchChatSession() {
+        coroutineScope.launch {
+            if (chatSessionManager.start(initializationValues)) {
+                launcherError = null
+                screen = SampleScreen.Chat
+            } else {
+                launcherError = chatSessionManager.state.value.error
+            }
+        }
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
@@ -155,68 +200,38 @@ private fun SampleApp(
         }
 
         pendingVoiceLaunch = false
-        coroutineScope.launch {
-            if (voiceSessionManager.start(initializationValues)) {
-                launcherError = null
-                screen = SampleScreen.Voice
-            } else {
-                launcherError = voiceSessionManager.state.value.error
-            }
-        }
+        launchVoiceSession()
     }
 
     when (screen) {
         SampleScreen.Launcher -> LauncherScreen(
-            agentLabel = buildAgentLabel(config, isConfigLoading),
-            baseUrl = baseUrl,
             configError = configError,
-            hasValidInitialization = hasValidInitialization,
-            initializationJson = initializationJson,
             isConfigLoading = isConfigLoading,
+            isVoiceStarting = isVoiceStarting,
+            isChatStarting = isChatStarting,
             launcherError = launcherError,
-            onBaseUrlChange = {
-                baseUrl = it
-                launcherError = null
-            },
-            onInitializationJsonChange = {
-                initializationJson = it
-                launcherError = null
-            },
             onStartChat = {
-                if (!hasValidInitialization) {
-                    launcherError = "Initialization values must be valid JSON."
+                if (isChatStarting) {
+                    launcherError = null
                 } else {
-                    coroutineScope.launch {
-                        if (chatSessionManager.start(initializationValues)) {
-                            launcherError = null
-                            screen = SampleScreen.Chat
-                        } else {
-                            launcherError = chatSessionManager.state.value.error
-                        }
-                    }
+                    launchChatSession()
                 }
             },
             onStartVoice = {
-                if (!hasValidInitialization) {
-                    launcherError = "Initialization values must be valid JSON."
+                if (isVoiceStarting) {
+                    launcherError = null
                 } else {
                     launcherError = null
                     if (voiceSessionManager.hasMicrophonePermission()) {
-                        coroutineScope.launch {
-                            if (voiceSessionManager.start(initializationValues)) {
-                                screen = SampleScreen.Voice
-                            } else {
-                                launcherError = voiceSessionManager.state.value.error
-                            }
-                        }
+                        launchVoiceSession()
                     } else {
                         pendingVoiceLaunch = true
                         permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
                 }
             },
-            voiceEnabled = !isConfigLoading && config?.supports?.voice != false,
-            chatEnabled = !isConfigLoading && config?.supports?.chat != false,
+            voiceEnabled = !isConfigLoading && config?.supports?.voice != false && !isVoiceStarting,
+            chatEnabled = !isConfigLoading && config?.supports?.chat != false && !isChatStarting,
         )
 
         SampleScreen.Voice -> VoiceScreen(
@@ -256,99 +271,161 @@ private fun SampleApp(
 
 @Composable
 private fun LauncherScreen(
-    baseUrl: String,
-    initializationJson: String,
-    hasValidInitialization: Boolean,
     isConfigLoading: Boolean,
+    isVoiceStarting: Boolean,
+    isChatStarting: Boolean,
     voiceEnabled: Boolean,
     chatEnabled: Boolean,
-    agentLabel: String,
     launcherError: String?,
     configError: String?,
-    onBaseUrlChange: (String) -> Unit,
-    onInitializationJsonChange: (String) -> Unit,
     onStartVoice: () -> Unit,
     onStartChat: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Text(
-            text = "Android Giga LiveKit Sample",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            text = agentLabel,
-            style = MaterialTheme.typography.bodyLarge,
+    Box(modifier = Modifier.fillMaxSize()) {
+        HeroBackground()
+
+        BrandWordmark(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .systemBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 16.dp),
         )
 
-        if (isConfigLoading) {
-            LoadingCard("Loading config")
-        }
+        Column(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .padding(horizontal = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            HeroEyebrow(text = "AI AGENT FOR ENTERPRISE SUPPORT")
+            Text(
+                text = "AI that talks like a human.\nHandles millions of conversations.",
+                style = MaterialTheme.typography.displaySmall,
+                color = BrandSoftWhite,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                text = "Reach the agent instantly over voice or chat.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = BrandSoftWhite.copy(alpha = 0.84f),
+                textAlign = TextAlign.Center,
+            )
+            PrimaryActionButton(
+                modifier = Modifier.fillMaxWidth(0.8f),
+                label = if (isVoiceStarting) "Connecting call..." else CALL_US_LABEL,
+                enabled = voiceEnabled,
+                onClick = onStartVoice,
+            )
+            SecondaryActionButton(
+                modifier = Modifier.fillMaxWidth(0.8f),
+                label = if (isChatStarting) "Opening chat..." else CHAT_WITH_US_LABEL,
+                enabled = chatEnabled,
+                onClick = onStartChat,
+            )
+            if (isConfigLoading) {
+                NoticeBanner("Connecting to backend...")
+            }
 
-        if (launcherError != null) {
-            ErrorCard(launcherError)
-        }
+            if (launcherError != null) {
+                NoticeBanner(launcherError)
+            }
 
-        if (configError != null) {
-            ErrorCard(configError)
-        }
-
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Backend base URL") },
-                    value = baseUrl,
-                    onValueChange = onBaseUrlChange,
-                )
-                OutlinedTextField(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(180.dp),
-                    label = { Text("Initialization JSON") },
-                    value = initializationJson,
-                    onValueChange = onInitializationJsonChange,
-                    supportingText = {
-                        Text(
-                            if (hasValidInitialization) {
-                                "Valid JSON object."
-                            } else {
-                                "Enter a valid JSON object."
-                            },
-                        )
-                    },
-                )
+            if (configError != null) {
+                NoticeBanner(configError)
             }
         }
+    }
+}
 
-        Button(
-            modifier = Modifier.fillMaxWidth(),
-            enabled = voiceEnabled,
-            onClick = onStartVoice,
-        ) {
-            Text("Start voice")
-        }
+@Composable
+private fun HeroBackground() {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Image(
+            painter = painterResource(id = R.drawable.giga_hero_background),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            BrandHeroTopOverlay,
+                            BrandHeroMiddleOverlay,
+                            BrandHeroMiddleOverlay,
+                            BrandHeroBottomOverlay,
+                        ),
+                    ),
+                ),
+        )
+    }
+}
 
-        Button(
-            modifier = Modifier.fillMaxWidth(),
-            enabled = chatEnabled,
-            onClick = onStartChat,
-        ) {
-            Text("Start chat")
-        }
-
+@Composable
+private fun BrandWordmark(
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.giga_orb_white),
+            contentDescription = "Giga orb",
+            modifier = Modifier.size(20.dp),
+        )
         Text(
-            text = "Default emulator URL is http://10.0.2.2:8787",
+            text = "Giga",
+            style = MaterialTheme.typography.titleMedium,
+            color = BrandSoftWhite,
+        )
+    }
+}
+
+@Composable
+private fun HeroEyebrow(text: String) {
+    Surface(
+        color = BrandGlassColor,
+        shape = RoundedCornerShape(999.dp),
+        border = BorderStroke(1.dp, BrandGlassBorderColor),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(BrandAccentColor),
+            )
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelMedium,
+                color = BrandSoftWhite.copy(alpha = 0.9f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun NoticeBanner(message: String) {
+    Surface(
+        color = BrandGlassColor,
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(1.dp, BrandGlassBorderColor),
+    ) {
+        Text(
+            text = message,
             style = MaterialTheme.typography.bodySmall,
+            color = BrandSoftWhite.copy(alpha = 0.9f),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
         )
     }
 }
@@ -359,49 +436,71 @@ private fun VoiceScreen(
     onBack: () -> Unit,
     onToggleMute: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Text(
-            text = "Voice session",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            text = when (state.connectionState) {
-                VoiceConnectionState.CONNECTED -> "Connected"
-                VoiceConnectionState.CONNECTING -> "Connecting"
-                VoiceConnectionState.IDLE -> "Idle"
-            },
-            style = MaterialTheme.typography.titleMedium,
-        )
+    Box(modifier = Modifier.fillMaxSize()) {
+        HeroBackground()
 
-        val voiceError = state.error
-        if (voiceError != null) {
-            ErrorCard(voiceError)
-        }
-
-        TranscriptCard(
-            emptyState = "Start speaking. LiveKit transcriptions will appear here.",
-            transcript = state.transcript,
-        )
-
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(
-                modifier = Modifier.weight(1f),
-                onClick = onToggleMute,
-            ) {
-                Text(if (state.isMicrophoneEnabled) "Mute" else "Unmute")
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .systemBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            BrandWordmark()
+            HeroEyebrow(text = "VOICE EXPERIENCE")
+            Text(
+                text = "Call with Us",
+                style = MaterialTheme.typography.headlineLarge,
+                color = BrandSoftWhite,
+            )
+            Text(
+                text = "Stay in the same Giga experience while your live conversation unfolds below.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = BrandSoftWhite.copy(alpha = 0.84f),
+            )
+            MonochromeCard {
+                Text(
+                    text = "Call status",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = BrandSoftWhite.copy(alpha = 0.86f),
+                )
+                Text(
+                    text = voiceConnectionLabel(state.connectionState),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = BrandSoftWhite,
+                )
+                Text(
+                    text = if (state.isMicrophoneEnabled) {
+                        "Microphone is on and ready for a natural conversation."
+                    } else {
+                        "Microphone is muted right now. Unmute whenever you are ready."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
-            Button(
-                modifier = Modifier.weight(1f),
-                onClick = onBack,
-            ) {
-                Text("End call")
+            val voiceError = state.error
+            if (voiceError != null) {
+                NoticeBanner(voiceError)
+            }
+
+            TranscriptCard(
+                emptyState = "Start speaking. LiveKit transcriptions will appear here.",
+                transcript = state.transcript,
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                SecondaryActionButton(
+                    modifier = Modifier.weight(1f),
+                    label = if (state.isMicrophoneEnabled) "Mute" else "Unmute",
+                    onClick = onToggleMute,
+                )
+                PrimaryActionButton(
+                    modifier = Modifier.weight(1f),
+                    label = "End Call",
+                    onClick = onBack,
+                )
             }
         }
     }
@@ -415,54 +514,72 @@ private fun ChatScreen(
     onSend: () -> Unit,
     onBack: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Text(
-            text = "Chat session",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-        )
+    Box(modifier = Modifier.fillMaxSize()) {
+        HeroBackground()
 
-        val chatError = state.error
-        if (chatError != null) {
-            ErrorCard(chatError)
-        }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .systemBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            BrandWordmark()
+            HeroEyebrow(text = "CHAT EXPERIENCE")
+            Text(
+                text = "Chat with Us",
+                style = MaterialTheme.typography.headlineLarge,
+                color = BrandSoftWhite,
+            )
+            Text(
+                text = "Keep the same Giga feel while you send messages and follow the conversation in real time.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = BrandSoftWhite.copy(alpha = 0.84f),
+            )
 
-        TranscriptCard(
-            emptyState = if (state.isStarting) {
-                "Starting chat session..."
-            } else {
-                "No messages yet."
-            },
-            transcript = state.transcript,
-        )
-
-        OutlinedTextField(
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !state.isStarting && !state.isSending && !state.isClosing,
-            label = { Text("Message") },
-            value = composerValue,
-            onValueChange = onComposerValueChange,
-        )
-
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(
-                modifier = Modifier.weight(1f),
-                enabled = composerValue.isNotBlank() && !state.isSending,
-                onClick = onSend,
-            ) {
-                Text(if (state.isSending) "Sending..." else "Send")
+            val chatError = state.error
+            if (chatError != null) {
+                NoticeBanner(chatError)
             }
 
-            TextButton(
-                modifier = Modifier.weight(1f),
-                onClick = onBack,
-            ) {
-                Text(if (state.isClosing) "Ending..." else "End session")
+            TranscriptCard(
+                emptyState = if (state.isStarting) {
+                    "Starting chat session..."
+                } else {
+                    "No messages yet."
+                },
+                transcript = state.transcript,
+            )
+
+            MonochromeCard {
+                Text(
+                    text = "Send a message",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = BrandSoftWhite.copy(alpha = 0.86f),
+                )
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !state.isStarting && !state.isSending && !state.isClosing,
+                    label = { Text("Message") },
+                    value = composerValue,
+                    onValueChange = onComposerValueChange,
+                    colors = brandTextFieldColors(),
+                )
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                PrimaryActionButton(
+                    modifier = Modifier.weight(1f),
+                    enabled = composerValue.isNotBlank() && !state.isSending && !state.isStarting,
+                    label = if (state.isSending) "Sending..." else "Send",
+                    onClick = onSend,
+                )
+                SecondaryActionButton(
+                    modifier = Modifier.weight(1f),
+                    enabled = !state.isClosing,
+                    label = if (state.isClosing) "Closing..." else "End Chat",
+                    onClick = onBack,
+                )
             }
         }
     }
@@ -477,6 +594,12 @@ private fun ColumnScope.TranscriptCard(
         modifier = Modifier
             .fillMaxWidth()
             .weight(1f, fill = true),
+        shape = RoundedCornerShape(24.dp),
+        border = BorderStroke(1.dp, BrandGlassBorderColor),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         if (transcript.isEmpty()) {
             Box(
@@ -487,6 +610,7 @@ private fun ColumnScope.TranscriptCard(
             ) {
                 Text(
                     text = emptyState,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
             }
@@ -506,6 +630,7 @@ private fun ColumnScope.TranscriptCard(
                         } else {
                             MaterialTheme.colorScheme.secondaryContainer
                         },
+                        shape = RoundedCornerShape(18.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
@@ -544,20 +669,23 @@ private fun ColumnScope.TranscriptCard(
 
 @Composable
 private fun ErrorCard(message: String) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    MonochromeCard {
+        Text(
+            text = "Something needs attention",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+        )
         Text(
             text = message,
-            color = MaterialTheme.colorScheme.error,
-            modifier = Modifier.padding(16.dp),
+            color = MaterialTheme.colorScheme.onSurface,
         )
     }
 }
 
 @Composable
 private fun LoadingCard(title: String) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    MonochromeCard {
         Row(
-            modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -567,17 +695,188 @@ private fun LoadingCard(title: String) {
     }
 }
 
-private fun buildAgentLabel(
-    config: AppConfigResponse?,
-    isConfigLoading: Boolean,
-): String =
-    when {
-        config?.defaultAgentId != null -> "Agent ${shortIdentifier(config.defaultAgentId)}"
-        config?.defaultAgentTemplateId != null -> {
-            "Template ${shortIdentifier(config.defaultAgentTemplateId)}"
+@Composable
+private fun MonochromeCard(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
+        border = BorderStroke(1.dp, BrandGlassBorderColor),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            content = content,
+        )
+    }
+}
+
+@Composable
+private fun PrimaryActionButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    Button(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(56.dp),
+        enabled = enabled,
+        onClick = onClick,
+        shape = RoundedCornerShape(999.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+        ),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+@Composable
+private fun SecondaryActionButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    OutlinedButton(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(56.dp),
+        enabled = enabled,
+        onClick = onClick,
+        shape = RoundedCornerShape(999.dp),
+        border = BorderStroke(1.dp, BrandGlassBorderColor),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = BrandGlassColor,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun InitializationOptionField(
+    options: List<InitializationOption>,
+    selectedInitializationOptionId: String,
+    onOptionSelected: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedOption = options.firstOrNull { it.id == selectedInitializationOptionId }
+        ?: options.first()
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = !expanded },
+    ) {
+        OutlinedTextField(
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor(
+                    type = MenuAnchorType.PrimaryNotEditable,
+                    enabled = true,
+                ),
+            readOnly = true,
+            value = selectedOption.label,
+            onValueChange = {},
+            label = { Text("Initialization preset") },
+            supportingText = {
+                Text(
+                    selectedOption.description ?: "Choose a ready-made session preset.",
+                )
+            },
+            trailingIcon = {
+                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+            },
+            colors = brandTextFieldColors(),
+        )
+
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            options.forEach { option ->
+                val optionDescription = option.description
+                DropdownMenuItem(
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = option.label,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            if (!optionDescription.isNullOrBlank()) {
+                                Text(
+                                    text = optionDescription,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    },
+                    onClick = {
+                        expanded = false
+                        onOptionSelected(option.id)
+                    },
+                )
+            }
         }
-        isConfigLoading -> "Loading configured agent"
-        else -> "No configured agent"
+    }
+}
+
+@Composable
+private fun brandTextFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedTextColor = BrandSoftWhite,
+    unfocusedTextColor = BrandSoftWhite,
+    disabledTextColor = BrandSoftWhite.copy(alpha = 0.5f),
+    focusedContainerColor = Color.Transparent,
+    unfocusedContainerColor = Color.Transparent,
+    disabledContainerColor = Color.Transparent,
+    focusedBorderColor = BrandSoftWhite.copy(alpha = 0.52f),
+    unfocusedBorderColor = BrandSoftWhite.copy(alpha = 0.18f),
+    disabledBorderColor = BrandSoftWhite.copy(alpha = 0.12f),
+    focusedLabelColor = BrandSoftWhite.copy(alpha = 0.9f),
+    unfocusedLabelColor = BrandSoftWhite.copy(alpha = 0.7f),
+    disabledLabelColor = BrandSoftWhite.copy(alpha = 0.45f),
+    focusedSupportingTextColor = BrandSoftWhite.copy(alpha = 0.7f),
+    unfocusedSupportingTextColor = BrandSoftWhite.copy(alpha = 0.7f),
+    disabledSupportingTextColor = BrandSoftWhite.copy(alpha = 0.45f),
+    focusedTrailingIconColor = BrandSoftWhite.copy(alpha = 0.9f),
+    unfocusedTrailingIconColor = BrandSoftWhite.copy(alpha = 0.7f),
+    cursorColor = BrandSoftWhite,
+)
+
+private fun buildInitializationOptions(
+    options: List<InitializationOption>,
+): List<InitializationOption> =
+    if (options.isEmpty()) {
+        listOf(
+            InitializationOption(
+                id = DEFAULT_INITIALIZATION_OPTION_ID,
+                label = "Default session",
+                description = "Starts with no extra initialization values.",
+                values = emptyInitializationValues(),
+            ),
+        )
+    } else {
+        options
     }
 
 private fun buildDisplayText(entry: TranscriptEntry): String {
@@ -597,3 +896,126 @@ private fun buildDisplayText(entry: TranscriptEntry): String {
         .replace(Regex("\\n{3,}"), "\n\n")
         .trim()
 }
+
+private fun voiceConnectionLabel(connectionState: VoiceConnectionState): String =
+    when (connectionState) {
+        VoiceConnectionState.CONNECTED -> "Connected"
+        VoiceConnectionState.CONNECTING -> "Connecting"
+        VoiceConnectionState.IDLE -> "Idle"
+    }
+
+private const val DEFAULT_INITIALIZATION_OPTION_ID = "default"
+private const val CALL_US_LABEL = "\uD83D\uDCDE Call Us"
+private const val CHAT_WITH_US_LABEL = "\uD83D\uDCAC Chat with Us"
+
+private val GigaSansTextFontFamily = FontFamily(
+    Font(R.font.giga_sans_text_regular, FontWeight.Normal),
+    Font(R.font.giga_sans_text_medium, FontWeight.Medium),
+    Font(R.font.giga_sans_text_semibold, FontWeight.SemiBold),
+)
+
+private val GigaSansDisplayFontFamily = FontFamily(
+    Font(R.font.giga_sans_display_regular, FontWeight.Normal),
+    Font(R.font.giga_sans_display_medium, FontWeight.Medium),
+    Font(R.font.giga_sans_display_semibold, FontWeight.SemiBold),
+)
+
+private val EmilioFontFamily = FontFamily(
+    Font(R.font.emilio_light, FontWeight.Light),
+    Font(R.font.emilio_regular, FontWeight.Normal),
+    Font(R.font.emilio_semibold, FontWeight.SemiBold),
+)
+
+private val SampleBrandTypography = Typography(
+    displaySmall = TextStyle(
+        fontFamily = EmilioFontFamily,
+        fontWeight = FontWeight.Light,
+        fontSize = 44.sp,
+        lineHeight = 52.sp,
+        letterSpacing = (-1).sp,
+    ),
+    headlineLarge = TextStyle(
+        fontFamily = EmilioFontFamily,
+        fontWeight = FontWeight.Light,
+        fontSize = 34.sp,
+        lineHeight = 42.sp,
+        letterSpacing = (-0.8).sp,
+    ),
+    headlineMedium = TextStyle(
+        fontFamily = GigaSansDisplayFontFamily,
+        fontWeight = FontWeight.Medium,
+        fontSize = 28.sp,
+        lineHeight = 34.sp,
+    ),
+    titleLarge = TextStyle(
+        fontFamily = GigaSansDisplayFontFamily,
+        fontWeight = FontWeight.Medium,
+        fontSize = 22.sp,
+        lineHeight = 28.sp,
+    ),
+    titleMedium = TextStyle(
+        fontFamily = GigaSansTextFontFamily,
+        fontWeight = FontWeight.Medium,
+        fontSize = 16.sp,
+        lineHeight = 24.sp,
+    ),
+    bodyLarge = TextStyle(
+        fontFamily = GigaSansTextFontFamily,
+        fontWeight = FontWeight.Normal,
+        fontSize = 16.sp,
+        lineHeight = 24.sp,
+    ),
+    bodyMedium = TextStyle(
+        fontFamily = GigaSansTextFontFamily,
+        fontWeight = FontWeight.Normal,
+        fontSize = 14.sp,
+        lineHeight = 22.sp,
+    ),
+    bodySmall = TextStyle(
+        fontFamily = GigaSansTextFontFamily,
+        fontWeight = FontWeight.Normal,
+        fontSize = 12.sp,
+        lineHeight = 18.sp,
+    ),
+    labelLarge = TextStyle(
+        fontFamily = GigaSansTextFontFamily,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
+    ),
+    labelMedium = TextStyle(
+        fontFamily = GigaSansTextFontFamily,
+        fontWeight = FontWeight.Medium,
+        fontSize = 11.sp,
+        lineHeight = 16.sp,
+        letterSpacing = 1.sp,
+    ),
+)
+
+private val SampleBrandColorScheme = darkColorScheme(
+    primary = Color(0xFFFFFFFF),
+    onPrimary = Color(0xFF0B1017),
+    primaryContainer = Color(0x2AFFFFFF),
+    onPrimaryContainer = Color(0xFFFFFFFF),
+    secondary = Color(0xFFFFFFFF),
+    onSecondary = Color(0xFF0B1017),
+    secondaryContainer = Color(0x1CFFFFFF),
+    onSecondaryContainer = Color(0xFFFFFFFF),
+    background = Color(0xFF081019),
+    onBackground = Color(0xFFFFFFFF),
+    surface = Color(0xFF121A22),
+    onSurface = Color(0xFFFFFFFF),
+    surfaceVariant = Color(0xFF1A232C),
+    onSurfaceVariant = Color(0xB8FFFFFF),
+    outline = Color(0x26FFFFFF),
+    error = Color(0xFFFFF2EC),
+    onError = Color(0xFF0B1017),
+)
+
+private val BrandSoftWhite = Color(0xFFF8F5EF)
+private val BrandAccentColor = Color(0xFFF76B15)
+private val BrandGlassColor = Color(0x24060C12)
+private val BrandGlassBorderColor = Color(0x26FFFFFF)
+private val BrandHeroTopOverlay = Color(0x14081017)
+private val BrandHeroMiddleOverlay = Color(0x08081017)
+private val BrandHeroBottomOverlay = Color(0xD2081017)

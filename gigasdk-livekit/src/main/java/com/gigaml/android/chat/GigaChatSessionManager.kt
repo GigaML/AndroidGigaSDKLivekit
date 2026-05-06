@@ -29,38 +29,48 @@ class GigaChatSessionManager(
     private val _state = MutableStateFlow(GigaChatSessionState())
 
     private var sessionEnded = false
+    private var startInProgress = false
 
     val state: StateFlow<GigaChatSessionState> = _state.asStateFlow()
 
     suspend fun start(initializationValues: JsonObject): Boolean {
-        sessionEnded = false
-        _state.value = GigaChatSessionState(isStarting = true)
+        if (startInProgress) {
+            return false
+        }
 
-        return try {
-            val response = client.startChatSession(initializationValues)
-            _state.value = GigaChatSessionState(
-                isStarting = false,
-                ticketId = response.ticketId,
-                transcript = response.welcomeMessage
-                    ?.takeIf { it.isNotBlank() }
-                    ?.let {
-                        listOf(
-                            TranscriptEntry(
-                                id = "welcome-${response.ticketId}",
-                                role = TranscriptEntry.Role.ASSISTANT,
-                                text = it,
-                                imageUrls = extractImageUrls(it),
-                            ),
-                        )
-                    }
-                    .orEmpty(),
-            )
-            true
-        } catch (error: Exception) {
-            _state.value = GigaChatSessionState(
-                error = error.message ?: "Failed to start chat session.",
-            )
-            false
+        startInProgress = true
+        try {
+            sessionEnded = false
+            _state.value = GigaChatSessionState(isStarting = true)
+
+            return try {
+                val response = client.startChatSession(initializationValues)
+                _state.value = GigaChatSessionState(
+                    isStarting = false,
+                    ticketId = response.ticketId,
+                    transcript = response.welcomeMessage
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let {
+                            listOf(
+                                TranscriptEntry(
+                                    id = "welcome-${response.ticketId}",
+                                    role = TranscriptEntry.Role.ASSISTANT,
+                                    text = it,
+                                    imageUrls = extractImageUrls(it),
+                                ),
+                            )
+                        }
+                        .orEmpty(),
+                )
+                true
+            } catch (error: Exception) {
+                _state.value = GigaChatSessionState(
+                    error = error.message ?: "Failed to start chat session.",
+                )
+                false
+            }
+        } finally {
+            startInProgress = false
         }
     }
 
