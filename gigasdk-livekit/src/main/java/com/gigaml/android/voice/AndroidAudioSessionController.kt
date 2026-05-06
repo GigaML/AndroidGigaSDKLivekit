@@ -8,14 +8,15 @@ import android.media.AudioManager
 internal class AndroidAudioSessionController(
     context: Context,
 ) {
-    private val audioManager = context.getSystemService(AudioManager::class.java)
+    private val audioManager = checkNotNull(context.getSystemService(AudioManager::class.java)) {
+        "AudioManager is required for voice sessions."
+    }
 
     private var active = false
     private var audioFocusRequest: AudioFocusRequest? = null
-    private var previousMode: Int = AudioManager.MODE_NORMAL
-    private var previousSpeakerphoneState: Boolean = false
+    private var previousMode = AudioManager.MODE_NORMAL
+    private var previousSpeakerphoneState = false
 
-    @Suppress("DEPRECATION")
     fun start() {
         if (active) {
             return
@@ -29,20 +30,19 @@ internal class AndroidAudioSessionController(
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
             .build()
 
-        val nextFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+        val nextRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
             .setAudioAttributes(audioAttributes)
             .setOnAudioFocusChangeListener { }
             .build()
 
-        audioManager.requestAudioFocus(nextFocusRequest)
+        audioManager.requestAudioFocus(nextRequest)
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         audioManager.isSpeakerphoneOn = true
 
-        audioFocusRequest = nextFocusRequest
+        audioFocusRequest = nextRequest
         active = true
     }
 
-    @Suppress("DEPRECATION")
     fun stop() {
         if (!active) {
             return
@@ -53,7 +53,6 @@ internal class AndroidAudioSessionController(
 
         audioManager.mode = previousMode
         audioManager.isSpeakerphoneOn = previousSpeakerphoneState
-
         active = false
     }
 }

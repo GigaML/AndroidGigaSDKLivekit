@@ -14,12 +14,19 @@ const optionalNonEmptyString = z.preprocess((value) => {
 }, z.string().min(1).optional());
 
 const initializationValuesSchema = z.record(z.string(), z.unknown()).default({});
+const initializationOptionSchema = z.object({
+  description: optionalNonEmptyString,
+  id: optionalNonEmptyString,
+  label: z.string().trim().min(1),
+  values: initializationValuesSchema,
+});
 
 const envSchema = z.object({
   PORT: z.string().default('8787'),
   GIGA_API_KEY: z.string().min(1),
   GIGA_AGENT_ID: optionalNonEmptyString,
   GIGA_AGENT_TEMPLATE_ID: optionalNonEmptyString,
+  GIGA_INITIALIZATION_OPTIONS: optionalNonEmptyString,
   GIGA_CHAT_URL: z.url().default('https://agents.gigaml.com/v1/chat/rest'),
   GIGA_ROOM_URL: z.url(),
 });
@@ -31,9 +38,15 @@ const env = envSchema.parse({
   GIGA_AGENT_TEMPLATE_ID:
     process.env.GIGA_AGENT_TEMPLATE_ID ??
     process.env.TRILLIONS_AGENT_TEMPLATE_ID,
+  GIGA_INITIALIZATION_OPTIONS:
+    process.env.GIGA_INITIALIZATION_OPTIONS ??
+    process.env.TRILLIONS_INITIALIZATION_OPTIONS,
   GIGA_CHAT_URL: process.env.GIGA_CHAT_URL ?? process.env.TRILLIONS_CHAT_URL,
   GIGA_ROOM_URL: process.env.GIGA_ROOM_URL ?? process.env.TRILLIONS_ROOM_URL,
 });
+const initializationOptions = parseInitializationOptions(
+  env.GIGA_INITIALIZATION_OPTIONS,
+);
 
 if (env.GIGA_AGENT_ID == null && env.GIGA_AGENT_TEMPLATE_ID == null) {
   throw new Error(
@@ -268,12 +281,36 @@ function buildConfigResponse() {
     chatEndpoint: '/api/chat/start',
     defaultAgentId: env.GIGA_AGENT_ID ?? null,
     defaultAgentTemplateId: env.GIGA_AGENT_TEMPLATE_ID ?? null,
+    initializationOptions,
     roomEndpoint: '/api/voice/create-room',
     supports: {
       chat: true,
       voice: true,
     },
   };
+}
+
+function parseInitializationOptions(raw?: string) {
+  if (raw == null) {
+    return [];
+  }
+
+  try {
+    return z
+      .array(initializationOptionSchema)
+      .parse(JSON.parse(raw))
+      .map((option, index) => ({
+        description: option.description,
+        id: option.id ?? `preset-${index + 1}`,
+        label: option.label,
+        values: option.values,
+      }));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown parse error.';
+    throw new Error(
+      `GIGA_INITIALIZATION_OPTIONS must be a JSON array of preset objects. ${message}`,
+    );
+  }
 }
 
 function buildRoomRequest(input: RoomProxyRequest): Record<string, unknown> {

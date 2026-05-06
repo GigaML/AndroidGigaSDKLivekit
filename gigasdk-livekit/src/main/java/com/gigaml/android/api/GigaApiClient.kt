@@ -1,6 +1,8 @@
 package com.gigaml.android.api
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -25,6 +27,7 @@ data class AppConfigResponse(
     val chatEndpoint: String,
     val defaultAgentId: String? = null,
     val defaultAgentTemplateId: String? = null,
+    val initializationOptions: List<InitializationOption> = emptyList(),
     val roomEndpoint: String,
     val supports: Supports = Supports(),
 ) {
@@ -34,6 +37,14 @@ data class AppConfigResponse(
         val voice: Boolean = true,
     )
 }
+
+@Serializable
+data class InitializationOption(
+    val id: String,
+    val label: String,
+    val description: String? = null,
+    val values: JsonObject = buildJsonObject {},
+)
 
 @Serializable
 data class RoomResponse(
@@ -187,18 +198,22 @@ class GigaApiClient(
         fallbackMessage: String,
     ): T {
         val response = httpClient.newCall(request).await()
-        response.use { nextResponse ->
-            val payload = nextResponse.body?.string().orEmpty()
-            if (!nextResponse.isSuccessful) {
-                throw IOException(readErrorMessage(payload) ?: fallbackMessage)
-            }
+        val payload = withContext(Dispatchers.IO) {
+            response.use { nextResponse ->
+                val nextPayload = nextResponse.body?.string().orEmpty()
+                if (!nextResponse.isSuccessful) {
+                    throw IOException(readErrorMessage(nextPayload) ?: fallbackMessage)
+                }
 
-            if (payload.isBlank()) {
-                throw IOException(fallbackMessage)
-            }
+                if (nextPayload.isBlank()) {
+                    throw IOException(fallbackMessage)
+                }
 
-            return json.decodeFromString<T>(payload)
+                nextPayload
+            }
         }
+
+        return json.decodeFromString(payload)
     }
 
     private fun buildHeaders(hasBody: Boolean): Headers {
