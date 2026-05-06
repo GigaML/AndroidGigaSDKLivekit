@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -39,10 +41,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.gigaml.android.api.AppConfigResponse
 import com.gigaml.android.api.GigaApiClient
 import com.gigaml.android.api.GigaApiClientConfig
@@ -494,6 +499,7 @@ private fun ColumnScope.TranscriptCard(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 transcript.forEach { entry ->
+                    val displayText = buildDisplayText(entry)
                     Surface(
                         color = if (entry.role == TranscriptEntry.Role.USER) {
                             MaterialTheme.colorScheme.primaryContainer
@@ -508,8 +514,26 @@ private fun ColumnScope.TranscriptCard(
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                             )
-                            Spacer(modifier = Modifier.size(4.dp))
-                            Text(entry.text)
+                            if (entry.imageUrls.isNotEmpty() || displayText.isNotBlank()) {
+                                Spacer(modifier = Modifier.size(8.dp))
+                            }
+                            entry.imageUrls.forEach { imageUrl ->
+                                AsyncImage(
+                                    model = imageUrl,
+                                    contentDescription = "Chat image",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(220.dp)
+                                        .clip(RoundedCornerShape(12.dp)),
+                                )
+                                if (displayText.isNotBlank() || imageUrl != entry.imageUrls.last()) {
+                                    Spacer(modifier = Modifier.size(8.dp))
+                                }
+                            }
+                            if (displayText.isNotBlank()) {
+                                Text(displayText)
+                            }
                         }
                     }
                 }
@@ -555,3 +579,21 @@ private fun buildAgentLabel(
         isConfigLoading -> "Loading configured agent"
         else -> "No configured agent"
     }
+
+private fun buildDisplayText(entry: TranscriptEntry): String {
+    val imageMarkupRegex = Regex("""\[IMG\]<\s*https?://[^>]+>\[/IMG\]""", RegexOption.IGNORE_CASE)
+    val markdownImageRegex = Regex("""!\[[^\]]*]\(\s*https?://[^)]+\)""", RegexOption.IGNORE_CASE)
+    val emptyMarkdownImageRegex = Regex("""!\[[^\]]*]\(\s*\)""", RegexOption.IGNORE_CASE)
+
+    var result = entry.text
+        .replace(imageMarkupRegex, "")
+        .replace(markdownImageRegex, "")
+        .replace(emptyMarkdownImageRegex, "")
+    entry.imageUrls.forEach { imageUrl ->
+        result = result.replace(imageUrl, "")
+    }
+
+    return result
+        .replace(Regex("\\n{3,}"), "\n\n")
+        .trim()
+}

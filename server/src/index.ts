@@ -424,6 +424,7 @@ function normalizeChatMessage(message: unknown) {
       messageId: null,
       role: 'assistant',
       text: message,
+      imageUrls: extractImageUrlsFromText(message),
     };
   }
 
@@ -432,6 +433,7 @@ function normalizeChatMessage(message: unknown) {
       messageId: null,
       role: 'assistant',
       text: '',
+      imageUrls: [],
     };
   }
 
@@ -440,12 +442,13 @@ function normalizeChatMessage(message: unknown) {
       readString(message, 'message_id') ?? readString(message, 'messageId'),
     role: typeof message.role === 'string' ? message.role : 'assistant',
     text: extractChatText(message.content),
+    imageUrls: extractImageUrls(message.content),
   };
 }
 
 function extractChatText(content: unknown): string {
   if (typeof content === 'string') {
-    return content;
+    return stripImageMarkup(content);
   }
 
   if (!Array.isArray(content)) {
@@ -459,16 +462,77 @@ function extractChatText(content: unknown): string {
       }
 
       if (typeof part.text === 'string') {
-        return part.text;
+        return stripImageMarkup(part.text);
       }
 
       if (typeof part.content === 'string') {
-        return part.content;
+        return stripImageMarkup(part.content);
       }
 
       return '';
     })
     .join('\n')
+    .trim();
+}
+
+function extractImageUrls(content: unknown): string[] {
+  if (typeof content === 'string') {
+    return extractImageUrlsFromText(content);
+  }
+
+  if (!Array.isArray(content)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      content.flatMap((part) => {
+        if (!isRecord(part)) {
+          return [];
+        }
+
+        const directCandidates = [
+          readString(part, 'url'),
+          readString(part, 'image_url'),
+          readString(part, 'imageUrl'),
+          readString(part, 'source_url'),
+          readString(part, 'sourceUrl'),
+          readString(part, 'text'),
+          readString(part, 'content'),
+        ].filter((value): value is string => value != null);
+
+        const nestedCandidates = [
+          readNestedString(part.image_url, 'url'),
+          readNestedString(part.imageUrl, 'url'),
+          readNestedString(part.source, 'url'),
+          readNestedString(part.source_url, 'url'),
+          readNestedString(part.sourceUrl, 'url'),
+          readNestedString(part.image_url, 'uri'),
+          readNestedString(part.imageUrl, 'uri'),
+          readNestedString(part.source, 'uri'),
+          readNestedString(part.source_url, 'uri'),
+          readNestedString(part.sourceUrl, 'uri'),
+        ].filter((value): value is string => value != null);
+
+        return [...directCandidates, ...nestedCandidates].flatMap(
+          extractImageUrlsFromText,
+        );
+      }),
+    ),
+  );
+}
+
+function extractImageUrlsFromText(text: string): string[] {
+  return Array.from(text.matchAll(IMAGE_URL_REGEX), (match) => match[0]);
+}
+
+function stripImageMarkup(text: string): string {
+  return text
+    .replace(IMAGE_TAG_REGEX, '')
+    .replace(MARKDOWN_IMAGE_REGEX, '')
+    .replace(EMPTY_MARKDOWN_IMAGE_REGEX, '')
+    .replace(IMAGE_URL_REGEX, '')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
@@ -551,6 +615,17 @@ function readRecord(data: Record<string, unknown>, key: string) {
   return isRecord(value) ? value : null;
 }
 
+function readNestedString(value: unknown, key: string) {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const nestedValue = value[key];
+  return typeof nestedValue === 'string' && nestedValue.length > 0
+    ? nestedValue
+    : null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -582,3 +657,8 @@ class ProxyError extends Error {
     this.status = status;
   }
 }
+
+const IMAGE_URL_REGEX = /https?:\/\/\S+\.(?:png|jpe?g|gif|webp)(?:\?\S*)?/gi;
+const IMAGE_TAG_REGEX = /\[IMG\]<\s*https?:\/\/[^>]+>\[\/IMG\]/gi;
+const MARKDOWN_IMAGE_REGEX = /!\[[^\]]*]\(\s*https?:\/\/[^)]+\)/gi;
+const EMPTY_MARKDOWN_IMAGE_REGEX = /!\[[^\]]*]\(\s*\)/gi;

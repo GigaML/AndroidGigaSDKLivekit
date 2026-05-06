@@ -49,6 +49,7 @@ class GigaChatSessionManager(
                                 id = "welcome-${response.ticketId}",
                                 role = TranscriptEntry.Role.ASSISTANT,
                                 text = it,
+                                imageUrls = extractImageUrls(it),
                             ),
                         )
                     }
@@ -85,6 +86,7 @@ class GigaChatSessionManager(
                     id = optimisticId,
                     role = TranscriptEntry.Role.USER,
                     text = trimmedText,
+                    imageUrls = extractImageUrls(trimmedText),
                 ),
             )
         }
@@ -99,6 +101,7 @@ class GigaChatSessionManager(
                         responseText = response.message.text,
                         responseRole = response.message.role,
                         responseId = response.message.messageId ?: "assistant-${System.currentTimeMillis()}",
+                        responseImageUrls = response.message.imageUrls,
                     ),
                 )
             }
@@ -156,8 +159,15 @@ class GigaChatSessionManager(
         responseText: String,
         responseRole: String,
         responseId: String,
+        responseImageUrls: List<String>,
     ): List<TranscriptEntry> {
-        if (responseText.isBlank()) {
+        val imageUrls = if (responseImageUrls.isNotEmpty()) {
+            responseImageUrls
+        } else {
+            extractImageUrls(responseText)
+        }
+
+        if (responseText.isBlank() && imageUrls.isEmpty()) {
             return transcript
         }
 
@@ -171,6 +181,18 @@ class GigaChatSessionManager(
             id = responseId,
             role = role,
             text = responseText,
+            imageUrls = imageUrls,
         )
+    }
+
+    private fun extractImageUrls(text: String): List<String> =
+        IMAGE_URL_REGEX.findAll(text)
+            .map { it.value }
+            .distinct()
+            .toList()
+
+    private companion object {
+        val IMAGE_URL_REGEX =
+            Regex("""https?://\S+\.(?:png|jpe?g|gif|webp)(?:\?\S*)?""", RegexOption.IGNORE_CASE)
     }
 }
