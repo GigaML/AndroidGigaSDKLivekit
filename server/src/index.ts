@@ -33,16 +33,12 @@ const envSchema = z.object({
 
 const env = envSchema.parse({
   PORT: process.env.PORT,
-  GIGA_API_KEY: process.env.GIGA_API_KEY ?? process.env.TRILLIONS_API_KEY,
-  GIGA_AGENT_ID: process.env.GIGA_AGENT_ID ?? process.env.TRILLIONS_AGENT_ID,
-  GIGA_AGENT_TEMPLATE_ID:
-    process.env.GIGA_AGENT_TEMPLATE_ID ??
-    process.env.TRILLIONS_AGENT_TEMPLATE_ID,
-  GIGA_INITIALIZATION_OPTIONS:
-    process.env.GIGA_INITIALIZATION_OPTIONS ??
-    process.env.TRILLIONS_INITIALIZATION_OPTIONS,
-  GIGA_CHAT_URL: process.env.GIGA_CHAT_URL ?? process.env.TRILLIONS_CHAT_URL,
-  GIGA_ROOM_URL: process.env.GIGA_ROOM_URL ?? process.env.TRILLIONS_ROOM_URL,
+  GIGA_API_KEY: process.env.GIGA_API_KEY,
+  GIGA_AGENT_ID: process.env.GIGA_AGENT_ID,
+  GIGA_AGENT_TEMPLATE_ID: process.env.GIGA_AGENT_TEMPLATE_ID,
+  GIGA_INITIALIZATION_OPTIONS: process.env.GIGA_INITIALIZATION_OPTIONS,
+  GIGA_CHAT_URL: process.env.GIGA_CHAT_URL,
+  GIGA_ROOM_URL: process.env.GIGA_ROOM_URL,
 });
 const initializationOptions = parseInitializationOptions(
   env.GIGA_INITIALIZATION_OPTIONS,

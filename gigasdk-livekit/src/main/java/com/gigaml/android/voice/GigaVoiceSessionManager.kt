@@ -3,6 +3,7 @@ package com.gigaml.android.voice
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.media.AudioManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.gigaml.android.api.GigaApiClient
@@ -29,6 +30,25 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlin.text.decodeToString
 
+/**
+ * Owns a single Giga voice session built on top of a LiveKit room.
+ *
+ * Responsibilities:
+ * - Calls `POST /api/voice/create-room` and connects to the returned
+ *   LiveKit server.
+ * - Enables the local microphone and exposes a mute toggle.
+ * - Manages the system audio session via [AndroidAudioSessionController]:
+ *   routes audio to a connected headset when present, falls back to
+ *   speakerphone, and pauses the microphone on audio focus loss
+ *   (incoming call, alarm, Assistant) — resuming on focus gain.
+ * - Surfaces a live transcript and connection state via [state].
+ *
+ * Call [close] from `onDestroy` / `DisposableEffect.onDispose` to
+ * release the LiveKit room and cancel the internal coroutine scope.
+ *
+ * The host app must hold `Manifest.permission.RECORD_AUDIO` before
+ * calling [start]; otherwise [start] sets an error and returns `false`.
+ */
 class GigaVoiceSessionManager(
     appContext: Context,
     private val client: GigaApiClient,
@@ -41,15 +61,27 @@ class GigaVoiceSessionManager(
 
     private var activeRoom: Room? = null
     private var roomEventsJob: Job? = null
+    private var pausedByAudioFocus = false
 
+    /** Observable session state — connection, transcript, mic, error. */
     val state: StateFlow<VoiceSessionState> = _state.asStateFlow()
 
+    /** Returns `true` if the host app currently holds `RECORD_AUDIO`. */
     fun hasMicrophonePermission(): Boolean =
         ContextCompat.checkSelfPermission(
             appContext,
             Manifest.permission.RECORD_AUDIO,
         ) == PackageManager.PERMISSION_GRANTED
 
+    /**
+     * Creates a voice room via the backend, connects to LiveKit, and
+     * enables the microphone.
+     *
+     * @param initializationValues Caller-supplied values forwarded to
+     *   the backend (typically an [InitializationOption.values] bundle).
+     * @return `true` on success. On failure the error message is
+     *   surfaced via [state] and the session is rolled back to IDLE.
+     */
     suspend fun start(initializationValues: JsonObject): Boolean {
         if (!hasMicrophonePermission()) {
             setError("Microphone access is required for voice testing.")
@@ -68,7 +100,7 @@ class GigaVoiceSessionManager(
                 isLoading = true,
             )
 
-            audioSessionController.start()
+            audioSessionController.start(::onAudioFocusChange)
 
             Log.d(TAG, "Creating voice room.")
             val roomResponse = try {
@@ -117,6 +149,7 @@ class GigaVoiceSessionManager(
         }
     }
 
+    /** Flips local mute state. No-op if no room is active. */
     suspend fun toggleMicrophone() {
         val room = activeRoom ?: return
 
@@ -135,21 +168,33 @@ class GigaVoiceSessionManager(
         }
     }
 
+    /**
+     * Disconnects the LiveKit room and restores the system audio mode
+     * and speakerphone state. The manager can be restarted by calling
+     * [start] again.
+     */
     fun stop() {
         roomEventsJob?.cancel()
         roomEventsJob = null
 
         activeRoom?.disconnect()
         activeRoom = null
+        pausedByAudioFocus = false
 
         audioSessionController.stop()
         _state.value = VoiceSessionState()
     }
 
+    /** Overwrites the current error message on [state]. */
     fun setError(message: String?) {
         _state.update { it.copy(error = message) }
     }
 
+    /**
+     * Permanently releases this manager. Cancels the internal coroutine
+     * scope; the instance must not be reused after this call. Safe to
+     * call from `onDestroy` or `DisposableEffect.onDispose`.
+     */
     fun close() {
         stop()
         scope.cancel()
@@ -269,6 +314,38 @@ class GigaVoiceSessionManager(
             error = error,
         )
         return false
+    }
+
+    private fun onAudioFocusChange(change: Int) {
+        val room = activeRoom ?: return
+        when (change) {
+            AudioManager.AUDIOFOCUS_LOSS,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                if (room.localParticipant.isMicrophoneEnabled) {
+                    Log.d(TAG, "Audio focus lost (change=$change); muting microphone.")
+                    pausedByAudioFocus = true
+                    scope.launch {
+                        runCatching { room.localParticipant.setMicrophoneEnabled(false) }
+                        _state.update { it.copy(isMicrophoneEnabled = false) }
+                    }
+                }
+            }
+
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                if (pausedByAudioFocus) {
+                    Log.d(TAG, "Audio focus regained; resuming microphone.")
+                    pausedByAudioFocus = false
+                    scope.launch {
+                        val enabled = runCatching {
+                            room.localParticipant.setMicrophoneEnabled(true)
+                            room.localParticipant.isMicrophoneEnabled
+                        }.getOrDefault(false)
+                        _state.update { it.copy(isMicrophoneEnabled = enabled) }
+                    }
+                }
+            }
+        }
     }
 
     private fun parseAgentError(rawMessage: String): String =

@@ -2,11 +2,15 @@ plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.serialization")
+    id("maven-publish")
 }
+
+group = "ai.giga"
+version = "0.1.0"
 
 android {
     namespace = "com.gigaml.android"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         minSdk = 26
@@ -20,6 +24,45 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+    }
+
+    publishing {
+        singleVariant("release") {
+            withSourcesJar()
+        }
+    }
+}
+
+afterEvaluate {
+    publishing {
+        publications {
+            create<MavenPublication>("release") {
+                from(components["release"])
+                groupId = project.group.toString()
+                artifactId = "gigasdk-livekit"
+                version = project.version.toString()
+
+                pom {
+                    name.set("Giga SDK for Android (LiveKit)")
+                    description.set(
+                        "Native Android library for Giga voice and chat agent " +
+                            "flows built on top of LiveKit.",
+                    )
+                    url.set("https://github.com/GigaML/AndroidGigaSDKLivekit")
+                    licenses {
+                        license {
+                            name.set("The Apache License, Version 2.0")
+                            url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+                        }
+                    }
+                    scm {
+                        url.set("https://github.com/GigaML/AndroidGigaSDKLivekit")
+                        connection.set("scm:git:https://github.com/GigaML/AndroidGigaSDKLivekit.git")
+                        developerConnection.set("scm:git:ssh://git@github.com/GigaML/AndroidGigaSDKLivekit.git")
+                    }
+                }
+            }
+        }
     }
 }
 
