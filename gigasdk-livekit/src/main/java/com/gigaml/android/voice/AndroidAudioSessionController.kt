@@ -6,6 +6,7 @@ import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 
@@ -21,6 +22,7 @@ internal class AndroidAudioSessionController(
     private var active = false
     private var audioFocusRequest: AudioFocusRequest? = null
     private var previousMode = AudioManager.MODE_NORMAL
+    private var previousCommunicationDeviceId: Int? = null
     private var previousSpeakerphoneState = false
     private var deviceCallback: AudioDeviceCallback? = null
     private var focusListener: ((Int) -> Unit)? = null
@@ -32,7 +34,8 @@ internal class AndroidAudioSessionController(
 
         focusListener = onFocusChange
         previousMode = audioManager.mode
-        previousSpeakerphoneState = audioManager.isSpeakerphoneOn
+        previousCommunicationDeviceId = readCurrentCommunicationDeviceId()
+        previousSpeakerphoneState = readLegacySpeakerphoneState()
 
         val audioAttributes = AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
@@ -67,26 +70,67 @@ internal class AndroidAudioSessionController(
         focusListener = null
 
         audioManager.mode = previousMode
-        audioManager.isSpeakerphoneOn = previousSpeakerphoneState
+        restorePreviousRouting()
         active = false
     }
 
     private fun applyPreferredRouting() {
-        audioManager.isSpeakerphoneOn = !hasExternalAudioDevice()
+        val shouldUseSpeaker = AudioRoutingPolicy.prefersBuiltInSpeaker(
+            audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).map(AudioDeviceInfo::getType),
+        )
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (shouldUseSpeaker) {
+                val speakerDevice = audioManager.availableCommunicationDevices.firstOrNull { device ->
+                    device.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+                }
+                if (speakerDevice != null) {
+                    audioManager.setCommunicationDevice(speakerDevice)
+                } else {
+                    audioManager.clearCommunicationDevice()
+                }
+            } else {
+                audioManager.clearCommunicationDevice()
+            }
+            return
+        }
+
+        setLegacySpeakerphoneEnabled(shouldUseSpeaker)
     }
 
-    private fun hasExternalAudioDevice(): Boolean {
-        val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-        return devices.any { device ->
-            when (device.type) {
-                AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
-                AudioDeviceInfo.TYPE_WIRED_HEADSET,
-                AudioDeviceInfo.TYPE_USB_HEADSET,
-                AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
-                AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> true
-                else -> false
+    private fun restorePreviousRouting() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val previousDevice = previousCommunicationDeviceId?.let { previousId ->
+                audioManager.availableCommunicationDevices.firstOrNull { device ->
+                    device.id == previousId
+                }
             }
+
+            if (previousDevice != null) {
+                audioManager.setCommunicationDevice(previousDevice)
+            } else {
+                audioManager.clearCommunicationDevice()
+            }
+            return
         }
+
+        setLegacySpeakerphoneEnabled(previousSpeakerphoneState)
+    }
+
+    private fun readCurrentCommunicationDeviceId(): Int? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            return null
+        }
+
+        return audioManager.communicationDevice?.id
+    }
+
+    @Suppress("DEPRECATION")
+    private fun readLegacySpeakerphoneState(): Boolean = audioManager.isSpeakerphoneOn
+
+    @Suppress("DEPRECATION")
+    private fun setLegacySpeakerphoneEnabled(enabled: Boolean) {
+        audioManager.isSpeakerphoneOn = enabled
     }
 
     private fun registerDeviceCallback() {
