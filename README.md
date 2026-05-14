@@ -11,28 +11,29 @@ Native Android SDK for Giga voice and chat agent flows, built on top of [LiveKit
 
 ## Install
 
-The intended customer distribution model for this SDK is source access through
-this repository. Grant read-only access to `GigaML/AndroidGigaSDKLivekit`, have
-the customer clone the repo, and follow the integration/setup docs from source.
-
-The recommended integration pattern is to include `gigasdk-livekit/` as a local
-Gradle module in the host Android app:
+Customer distribution is intended to happen through Maven Central. Once a public
+release from this repository has been published, consuming apps only need
+`mavenCentral()` plus the SDK coordinate:
 
 ```kotlin
-// settings.gradle.kts
-include(":gigasdk-livekit")
-project(":gigasdk-livekit").projectDir =
-    file("../AndroidGigaSDKLivekit/gigasdk-livekit")
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
 
-// app/build.gradle.kts
 dependencies {
-    implementation(project(":gigasdk-livekit"))
+    implementation("ai.giga:gigasdk-livekit:0.1.0")
 }
 ```
 
-Adjust the relative path to wherever the checked-out SDK repository lives on
-disk. The included `sample/` app in this repository demonstrates the same
-project-module integration pattern.
+> The coordinate will resolve after the first Maven Central release is
+> published. Maintainers can still use `./gradlew :gigasdk-livekit:publishToMavenLocal`
+> for local integration testing before or between public releases.
+
+Maintainers: see [PUBLISHING.md](PUBLISHING.md) for the one-time Central Portal,
+GPG signing, and GitHub Actions setup used for public releases.
 
 The library declares the permissions it needs (`INTERNET`, `RECORD_AUDIO`, `MODIFY_AUDIO_SETTINGS`, `BLUETOOTH_CONNECT`) and they are merged into the host app's manifest automatically. The host app is still responsible for requesting `RECORD_AUDIO` at runtime when starting a voice session.
 
@@ -146,6 +147,25 @@ The sample defaults to `http://10.0.2.2:8787` (the emulator alias for the host m
 ```bash
 ./gradlew :gigasdk-livekit:assemble :sample:assembleDebug
 ```
+
+### Publishing a Maven Central release
+
+Public releases are published by GitHub Actions from tags that start with `v`
+(for example `v0.1.0`). The workflow uses the tag value as `VERSION_NAME`, runs
+the SDK checks, and publishes the `ai.giga:gigasdk-livekit` artifact to Maven
+Central automatically.
+
+See [PUBLISHING.md](PUBLISHING.md) for the one-time account, signing-key, and
+GitHub secret setup.
+
+### Publishing to Maven Local
+
+```bash
+./gradlew :gigasdk-livekit:publishToMavenLocal
+```
+
+This installs `ai.giga:gigasdk-livekit:0.1.0` into `~/.m2/repository`, which
+downstream projects can consume by adding `mavenLocal()` to their repositories.
 
 ## Reference backend
 

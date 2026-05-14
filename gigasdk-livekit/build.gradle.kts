@@ -2,7 +2,11 @@ plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.serialization")
+    id("com.vanniktech.maven.publish")
 }
+
+group = providers.gradleProperty("GROUP").get()
+version = providers.gradleProperty("VERSION_NAME").get()
 
 android {
     namespace = "com.gigaml.android"
@@ -21,6 +25,10 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+}
+
+mavenPublishing {
+    publishToMavenCentral(automaticRelease = true)
 }
 
 dependencies {
