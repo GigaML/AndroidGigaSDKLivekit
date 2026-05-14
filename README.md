@@ -15,19 +15,24 @@ The intended customer distribution model for this SDK is source access through
 this repository. Grant read-only access to `GigaML/AndroidGigaSDKLivekit`, have
 the customer clone the repo, and follow the integration/setup docs from source.
 
-For local development, the library can also be published to Maven Local with the
-following coordinates:
+The recommended integration pattern is to include `gigasdk-livekit/` as a local
+Gradle module in the host Android app:
 
 ```kotlin
+// settings.gradle.kts
+include(":gigasdk-livekit")
+project(":gigasdk-livekit").projectDir =
+    file("../AndroidGigaSDKLivekit/gigasdk-livekit")
+
+// app/build.gradle.kts
 dependencies {
-    implementation("ai.giga:gigasdk-livekit:0.1.0")
+    implementation(project(":gigasdk-livekit"))
 }
 ```
 
-> The library is not published to a hosted Maven registry. For local development,
-> run `./gradlew :gigasdk-livekit:publishToMavenLocal` from this repository and
-> add `mavenLocal()` to your consumer project's
-> `dependencyResolutionManagement.repositories { }`.
+Adjust the relative path to wherever the checked-out SDK repository lives on
+disk. The included `sample/` app in this repository demonstrates the same
+project-module integration pattern.
 
 The library declares the permissions it needs (`INTERNET`, `RECORD_AUDIO`, `MODIFY_AUDIO_SETTINGS`, `BLUETOOTH_CONNECT`) and they are merged into the host app's manifest automatically. The host app is still responsible for requesting `RECORD_AUDIO` at runtime when starting a voice session.
 
@@ -141,14 +146,6 @@ The sample defaults to `http://10.0.2.2:8787` (the emulator alias for the host m
 ```bash
 ./gradlew :gigasdk-livekit:assemble :sample:assembleDebug
 ```
-
-### Publishing to Maven Local
-
-```bash
-./gradlew :gigasdk-livekit:publishToMavenLocal
-```
-
-This installs `ai.giga:gigasdk-livekit:0.1.0` into `~/.m2/repository`, which downstream projects can consume by adding `mavenLocal()` to their repositories.
 
 ## Reference backend
 
