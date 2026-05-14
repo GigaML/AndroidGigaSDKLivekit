@@ -19,6 +19,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -98,6 +99,10 @@ data class GigaApiClientConfig(
     val baseUrl: String,
     val endpoints: GigaApiEndpoints = GigaApiEndpoints(),
     val headers: Map<String, String> = emptyMap(),
+    val headerProvider: (suspend () -> Map<String, String>)? = null,
+    val connectTimeoutMillis: Long = 10_000L,
+    val readTimeoutMillis: Long = 30_000L,
+    val callTimeoutMillis: Long = 60_000L,
 )
 
 class GigaApiClient(
@@ -107,7 +112,11 @@ class GigaApiClient(
 ) {
     constructor(config: GigaApiClientConfig) : this(
         config = config,
-        httpClient = OkHttpClient(),
+        httpClient = OkHttpClient.Builder()
+            .connectTimeout(config.connectTimeoutMillis, TimeUnit.MILLISECONDS)
+            .readTimeout(config.readTimeoutMillis, TimeUnit.MILLISECONDS)
+            .callTimeout(config.callTimeoutMillis, TimeUnit.MILLISECONDS)
+            .build(),
         json = Json {
             ignoreUnknownKeys = true
         },
@@ -165,9 +174,10 @@ class GigaApiClient(
         method: String,
         fallbackMessage: String,
     ): T {
+        val headers = buildHeaders(hasBody = false)
         val request = Request.Builder()
             .url(resolveEndpoint(config.baseUrl, endpoint))
-            .headers(buildHeaders(hasBody = false))
+            .headers(headers)
             .method(method, null)
             .build()
 
@@ -181,9 +191,10 @@ class GigaApiClient(
         body: B? = null,
     ): T {
         val bodyJson = body?.let { json.encodeToString(it) }
+        val headers = buildHeaders(hasBody = bodyJson != null)
         val request = Request.Builder()
             .url(resolveEndpoint(config.baseUrl, endpoint))
-            .headers(buildHeaders(bodyJson != null))
+            .headers(headers)
             .method(
                 method,
                 bodyJson?.toRequestBody(JSON_MEDIA_TYPE),
@@ -216,15 +227,19 @@ class GigaApiClient(
         return json.decodeFromString(payload)
     }
 
-    private fun buildHeaders(hasBody: Boolean): Headers {
+    private suspend fun buildHeaders(hasBody: Boolean): Headers {
         val builder = Headers.Builder()
-            .add("Accept", "application/json")
+            .set("Accept", "application/json")
 
         if (hasBody) {
-            builder.add("Content-Type", "application/json")
+            builder.set("Content-Type", "application/json")
         }
 
         config.headers.forEach { (name, value) ->
+            builder.set(name, value)
+        }
+
+        config.headerProvider?.invoke()?.forEach { (name, value) ->
             builder.set(name, value)
         }
 
