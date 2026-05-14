@@ -3,6 +3,7 @@ package com.gigaml.android.voice
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.media.AudioManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.gigaml.android.api.GigaApiClient
@@ -41,6 +42,7 @@ class GigaVoiceSessionManager(
 
     private var activeRoom: Room? = null
     private var roomEventsJob: Job? = null
+    private var pausedByAudioFocus = false
 
     val state: StateFlow<VoiceSessionState> = _state.asStateFlow()
 
@@ -68,7 +70,7 @@ class GigaVoiceSessionManager(
                 isLoading = true,
             )
 
-            audioSessionController.start()
+            audioSessionController.start(::onAudioFocusChange)
 
             Log.d(TAG, "Creating voice room.")
             val roomResponse = try {
@@ -141,6 +143,7 @@ class GigaVoiceSessionManager(
 
         activeRoom?.disconnect()
         activeRoom = null
+        pausedByAudioFocus = false
 
         audioSessionController.stop()
         _state.value = VoiceSessionState()
@@ -269,6 +272,38 @@ class GigaVoiceSessionManager(
             error = error,
         )
         return false
+    }
+
+    private fun onAudioFocusChange(change: Int) {
+        val room = activeRoom ?: return
+        when (change) {
+            AudioManager.AUDIOFOCUS_LOSS,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                if (room.localParticipant.isMicrophoneEnabled) {
+                    Log.d(TAG, "Audio focus lost (change=$change); muting microphone.")
+                    pausedByAudioFocus = true
+                    scope.launch {
+                        runCatching { room.localParticipant.setMicrophoneEnabled(false) }
+                        _state.update { it.copy(isMicrophoneEnabled = false) }
+                    }
+                }
+            }
+
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                if (pausedByAudioFocus) {
+                    Log.d(TAG, "Audio focus regained; resuming microphone.")
+                    pausedByAudioFocus = false
+                    scope.launch {
+                        val enabled = runCatching {
+                            room.localParticipant.setMicrophoneEnabled(true)
+                            room.localParticipant.isMicrophoneEnabled
+                        }.getOrDefault(false)
+                        _state.update { it.copy(isMicrophoneEnabled = enabled) }
+                    }
+                }
+            }
+        }
     }
 
     private fun parseAgentError(rawMessage: String): String =
