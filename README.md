@@ -11,15 +11,46 @@ Native Android SDK for Giga voice and chat agent flows, built on top of [LiveKit
 
 ## Install
 
-The SDK publishes to Maven with the following coordinates:
+Customer distribution is intended to happen through private GitHub Packages.
+Consuming apps add the GitHub Packages Maven repository plus the SDK coordinate:
 
 ```kotlin
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/GigaML/AndroidGigaSDKLivekit")
+            credentials {
+                username = providers.gradleProperty("gpr.user").orNull
+                    ?: System.getenv("GITHUB_USERNAME")
+                password = providers.gradleProperty("gpr.key").orNull
+                    ?: System.getenv("GITHUB_TOKEN")
+            }
+        }
+    }
+}
+
 dependencies {
     implementation("ai.giga:gigasdk-livekit:0.1.0")
 }
 ```
 
-> The library is not yet hosted on a public Maven registry. For local development, run `./gradlew :gigasdk-livekit:publishToMavenLocal` from this repository and add `mavenLocal()` to your consumer project's `dependencyResolutionManagement.repositories { }`.
+To install from a private GitHub Packages Maven registry, the consuming developer
+or CI environment needs:
+
+- a GitHub username
+- a personal access token (classic) with `read:packages`
+- access to the GitHub repository backing the package
+
+> GitHub's Maven registry is repository-scoped. If you want customers to install
+> the package without seeing the source repo, publish to a separate private
+> "distribution-only" repository by changing `GITHUB_PACKAGES_REPOSITORY` in
+> `gradle.properties`.
+
+Maintainers: see [PUBLISHING.md](PUBLISHING.md) for the GitHub Actions and token
+setup used for private customer distribution.
 
 The library declares the permissions it needs (`INTERNET`, `RECORD_AUDIO`, `MODIFY_AUDIO_SETTINGS`, `BLUETOOTH_CONNECT`) and they are merged into the host app's manifest automatically. The host app is still responsible for requesting `RECORD_AUDIO` at runtime when starting a voice session.
 
@@ -133,6 +164,16 @@ The sample defaults to `http://10.0.2.2:8787` (the emulator alias for the host m
 ```bash
 ./gradlew :gigasdk-livekit:assemble :sample:assembleDebug
 ```
+
+### Publishing a GitHub Packages release
+
+Customer releases are published by GitHub Actions from tags that start with `v`
+(for example `v0.1.0`). The workflow uses the tag value as `VERSION_NAME`, runs
+the SDK checks, and publishes the `ai.giga:gigasdk-livekit` artifact to the
+configured private GitHub Packages repository.
+
+See [PUBLISHING.md](PUBLISHING.md) for the GitHub Packages token setup and the
+recommended "distribution-only" repository pattern.
 
 ### Publishing to Maven Local
 
