@@ -23,6 +23,14 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
+/**
+ * Backend-provided configuration returned from `GET /api/config`.
+ *
+ * Describes which capabilities (`chat`, `voice`) the backend supports,
+ * the default agent identifiers that will be used when a session
+ * request does not specify its own, and any preset initialization
+ * options the host app may surface as a picker.
+ */
 @Serializable
 data class AppConfigResponse(
     val chatEndpoint: String,
@@ -32,6 +40,7 @@ data class AppConfigResponse(
     val roomEndpoint: String,
     val supports: Supports = Supports(),
 ) {
+    /** Capability flags reported by the backend. */
     @Serializable
     data class Supports(
         val chat: Boolean = true,
@@ -39,6 +48,11 @@ data class AppConfigResponse(
     )
 }
 
+/**
+ * A preset bundle of initialization values that the host app can
+ * surface to users (e.g. "VIP support", "Spanish") and pass to
+ * [GigaVoiceSessionManager.start] or [GigaChatSessionManager.start].
+ */
 @Serializable
 data class InitializationOption(
     val id: String,
@@ -47,6 +61,10 @@ data class InitializationOption(
     val values: JsonObject = buildJsonObject {},
 )
 
+/**
+ * Response from `POST /api/voice/create-room`. Contains the LiveKit
+ * server URL and short-lived participant token used to join the room.
+ */
 @Serializable
 data class RoomResponse(
     val agentId: String? = null,
@@ -59,6 +77,10 @@ data class RoomResponse(
     val serverUrl: String,
 )
 
+/**
+ * Response from `POST /api/chat/start`. `ticketId` is the handle used
+ * by subsequent [ChatSendResponse] and end-session requests.
+ */
 @Serializable
 data class ChatStartResponse(
     val agentId: String? = null,
@@ -67,6 +89,10 @@ data class ChatStartResponse(
     val welcomeMessage: String? = null,
 )
 
+/**
+ * A single chat turn returned by the backend. `imageUrls` is parsed
+ * out of the message body when the backend sends inline image markup.
+ */
 @Serializable
 data class ChatMessage(
     val messageId: String? = null,
@@ -75,18 +101,24 @@ data class ChatMessage(
     val imageUrls: List<String> = emptyList(),
 )
 
+/** Response from `POST /api/chat/send`. */
 @Serializable
 data class ChatSendResponse(
     val message: ChatMessage,
     val responseType: String,
 )
 
+/** Response from `POST /api/chat/end`. */
 @Serializable
 data class ChatCloseResponse(
     val message: String? = null,
     val success: Boolean,
 )
 
+/**
+ * Endpoint paths used by [GigaApiClient]. Override individual fields
+ * if your backend deviates from the reference contract.
+ */
 data class GigaApiEndpoints(
     val closeChatSession: String = "/api/chat/end",
     val config: String = "/api/config",
@@ -95,6 +127,23 @@ data class GigaApiEndpoints(
     val startChatSession: String = "/api/chat/start",
 )
 
+/**
+ * Configuration for [GigaApiClient].
+ *
+ * @property baseUrl Origin of the backend that implements the Giga
+ *   REST contract. Required.
+ * @property endpoints Override endpoint paths if your backend deviates
+ *   from the reference contract.
+ * @property headers Static headers applied to every request.
+ * @property headerProvider Optional `suspend` callback invoked once per
+ *   request, after the static headers. Returned values override the
+ *   static ones. Use this for short-lived authentication tokens (JWTs,
+ *   signed timestamps) that must be fetched on demand.
+ * @property connectTimeoutMillis OkHttp `connectTimeout`. Defaults to 10s.
+ * @property readTimeoutMillis OkHttp `readTimeout`. Defaults to 30s.
+ * @property callTimeoutMillis OkHttp total-call timeout. Defaults to 60s.
+ *   Prevents a hung backend from leaking the calling coroutine.
+ */
 data class GigaApiClientConfig(
     val baseUrl: String,
     val endpoints: GigaApiEndpoints = GigaApiEndpoints(),
@@ -105,6 +154,16 @@ data class GigaApiClientConfig(
     val callTimeoutMillis: Long = 60_000L,
 )
 
+/**
+ * HTTP client for the Giga voice and chat REST contract.
+ *
+ * All methods are `suspend` and throw `IOException` (or a subclass)
+ * when the backend returns a non-2xx response or the connection fails.
+ * Callers are responsible for catching and surfacing errors to the UI.
+ *
+ * Instances are thread-safe and intended to be long-lived — share one
+ * client across your voice and chat managers.
+ */
 class GigaApiClient(
     private val config: GigaApiClientConfig,
     private val httpClient: OkHttpClient,
