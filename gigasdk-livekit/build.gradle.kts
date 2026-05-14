@@ -5,8 +5,15 @@ plugins {
     id("maven-publish")
 }
 
-group = "ai.giga"
-version = "0.1.0"
+group = providers.gradleProperty("GROUP").get()
+version = providers.gradleProperty("VERSION_NAME").get()
+
+val githubPackagesOwner = providers.gradleProperty("GITHUB_PACKAGES_OWNER")
+val githubPackagesRepository = providers.gradleProperty("GITHUB_PACKAGES_REPOSITORY")
+val githubPackagesUsername = providers.gradleProperty("gpr.user")
+    .orElse(providers.environmentVariable("GITHUB_ACTOR"))
+val githubPackagesPassword = providers.gradleProperty("gpr.key")
+    .orElse(providers.environmentVariable("GITHUB_TOKEN"))
 
 android {
     namespace = "com.gigaml.android"
@@ -33,32 +40,54 @@ android {
     }
 }
 
+publishing {
+    repositories {
+        maven {
+            name = "GitHubPackages"
+            url = uri(
+                "https://maven.pkg.github.com/" +
+                    "${githubPackagesOwner.get()}/${githubPackagesRepository.get()}",
+            )
+            credentials {
+                username = githubPackagesUsername.orNull
+                password = githubPackagesPassword.orNull
+            }
+        }
+    }
+}
+
 afterEvaluate {
     publishing {
         publications {
             create<MavenPublication>("release") {
                 from(components["release"])
                 groupId = project.group.toString()
-                artifactId = "gigasdk-livekit"
+                artifactId = providers.gradleProperty("POM_ARTIFACT_ID").get()
                 version = project.version.toString()
 
                 pom {
-                    name.set("Giga SDK for Android (LiveKit)")
-                    description.set(
-                        "Native Android library for Giga voice and chat agent " +
-                            "flows built on top of LiveKit.",
-                    )
-                    url.set("https://github.com/GigaML/AndroidGigaSDKLivekit")
+                    name.set(providers.gradleProperty("POM_NAME").get())
+                    description.set(providers.gradleProperty("POM_DESCRIPTION").get())
+                    inceptionYear.set(providers.gradleProperty("POM_INCEPTION_YEAR").get())
+                    url.set(providers.gradleProperty("POM_URL").get())
                     licenses {
                         license {
-                            name.set("The Apache License, Version 2.0")
-                            url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+                            name.set(providers.gradleProperty("POM_LICENSE_NAME").get())
+                            url.set(providers.gradleProperty("POM_LICENSE_URL").get())
+                            distribution.set(providers.gradleProperty("POM_LICENSE_DIST").get())
+                        }
+                    }
+                    developers {
+                        developer {
+                            id.set(providers.gradleProperty("POM_DEVELOPER_ID").get())
+                            name.set(providers.gradleProperty("POM_DEVELOPER_NAME").get())
+                            url.set(providers.gradleProperty("POM_DEVELOPER_URL").get())
                         }
                     }
                     scm {
-                        url.set("https://github.com/GigaML/AndroidGigaSDKLivekit")
-                        connection.set("scm:git:https://github.com/GigaML/AndroidGigaSDKLivekit.git")
-                        developerConnection.set("scm:git:ssh://git@github.com/GigaML/AndroidGigaSDKLivekit.git")
+                        url.set(providers.gradleProperty("POM_SCM_URL").get())
+                        connection.set(providers.gradleProperty("POM_SCM_CONNECTION").get())
+                        developerConnection.set(providers.gradleProperty("POM_SCM_DEV_CONNECTION").get())
                     }
                 }
             }
