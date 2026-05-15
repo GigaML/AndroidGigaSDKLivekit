@@ -36,7 +36,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     api("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("io.livekit:livekit-android:2.24.0")
+    implementation(files("libs/audioswitch-fork.jar"))
+    implementation("io.livekit:livekit-android:2.24.0") {
+        exclude(group = "com.github.davidliu", module = "audioswitch")
+    }
 
     testImplementation("junit:junit:4.13.2")
 }
