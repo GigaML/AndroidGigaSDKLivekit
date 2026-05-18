@@ -3,6 +3,7 @@ name: Android Quality
 on:
   pull_request:
     paths:
+      - ".github/CODEOWNERS"
       - ".github/workflows/*.yml"
       - ".pre-commit-config.yaml"
       - "build.gradle.kts"
@@ -20,6 +21,7 @@ on:
     branches:
       - main
     paths:
+      - ".github/CODEOWNERS"
       - ".github/workflows/*.yml"
       - ".pre-commit-config.yaml"
       - "build.gradle.kts"
