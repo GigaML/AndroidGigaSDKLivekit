@@ -169,6 +169,11 @@ publishes the SDK to Maven Local, verifies the sample against that Maven Local
 artifact, typechecks the sample backend, runs repository hygiene checks, and
 performs dependency review.
 
+Dependency review is present in CI, but GitHub Dependency Graph must be enabled
+for the repository before that check can enforce dependency policy. Until then,
+the job reports the missing repository setting without blocking the rest of the
+quality workflow.
+
 Run the same core checks locally before opening a release-sensitive PR:
 
 ```bash
