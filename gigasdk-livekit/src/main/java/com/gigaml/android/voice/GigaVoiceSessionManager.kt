@@ -100,7 +100,12 @@ class GigaVoiceSessionManager(
                 isLoading = true,
             )
 
-            audioSessionController.start(::onAudioFocusChange)
+            if (!audioSessionController.start(::onAudioFocusChange)) {
+                return handleStartFailure(
+                    "Failed to start the voice audio session.",
+                    IllegalStateException("Android audio focus was not granted."),
+                )
+            }
 
             Log.d(TAG, "Creating voice room.")
             val roomResponse = try {

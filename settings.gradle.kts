@@ -7,8 +7,15 @@ pluginManagement {
 }
 
 dependencyResolutionManagement {
+    val useMavenLocalSdk = providers.gradleProperty("useMavenLocalSdk")
+        .map(String::toBoolean)
+        .orElse(false)
+
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        if (useMavenLocalSdk.get()) {
+            mavenLocal()
+        }
         google()
         mavenCentral()
     }

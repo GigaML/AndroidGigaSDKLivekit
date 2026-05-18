@@ -6,6 +6,7 @@ import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -27,9 +28,9 @@ internal class AndroidAudioSessionController(
     private var deviceCallback: AudioDeviceCallback? = null
     private var focusListener: ((Int) -> Unit)? = null
 
-    fun start(onFocusChange: (Int) -> Unit = {}) {
+    fun start(onFocusChange: (Int) -> Unit = {}): Boolean {
         if (active) {
-            return
+            return true
         }
 
         focusListener = onFocusChange
@@ -47,7 +48,12 @@ internal class AndroidAudioSessionController(
             .setOnAudioFocusChangeListener({ change -> focusListener?.invoke(change) }, mainHandler)
             .build()
 
-        audioManager.requestAudioFocus(nextRequest)
+        val focusResult = audioManager.requestAudioFocus(nextRequest)
+        if (focusResult != AUDIOFOCUS_REQUEST_GRANTED) {
+            focusListener = null
+            return false
+        }
+
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
 
         applyPreferredRouting()
@@ -55,6 +61,7 @@ internal class AndroidAudioSessionController(
 
         audioFocusRequest = nextRequest
         active = true
+        return true
     }
 
     fun stop() {
