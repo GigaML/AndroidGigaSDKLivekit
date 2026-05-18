@@ -149,15 +149,16 @@ The workflow:
 ## Publishing a release
 
 1. Merge the release-ready changes into `main`.
-2. Create and push a semver tag:
+2. Confirm the Android Quality workflow is green for the release-ready change.
+3. Create and push a semver tag:
 
 ```bash
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-3. Watch the GitHub Actions run complete successfully.
-4. Wait for Maven Central indexing. New artifacts can take 10 to 30 minutes to
+4. Watch the GitHub Actions run complete successfully.
+5. Wait for Maven Central indexing. New artifacts can take 10 to 30 minutes to
    become visible to consumers.
 
 You can also trigger the workflow manually from GitHub Actions and provide a
@@ -175,6 +176,12 @@ Use the default Gradle command before cutting a release:
 The default command runs `buildTestPublishToMavenLocal`, which builds the SDK
 and sample, runs the SDK debug unit tests, and publishes
 `ai.giga:gigasdk-livekit` to Maven Local.
+
+Before tagging, also run the Maven Local consumption check used by CI:
+
+```bash
+./gradlew :sample:assembleDebug -PuseMavenLocalSdk=true
+```
 
 ## Customer install snippet
 

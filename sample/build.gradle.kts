@@ -3,6 +3,12 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val useMavenLocalSdk = providers.gradleProperty("useMavenLocalSdk")
+    .map(String::toBoolean)
+    .orElse(false)
+val sdkGroup = providers.gradleProperty("GROUP")
+val sdkVersion = providers.gradleProperty("VERSION_NAME")
+
 android {
     namespace = "com.gigaml.android.sample"
     compileSdk = 35
@@ -40,7 +46,11 @@ android {
 }
 
 dependencies {
-    implementation(project(":gigasdk-livekit"))
+    if (useMavenLocalSdk.get()) {
+        implementation("${sdkGroup.get()}:gigasdk-livekit:${sdkVersion.get()}")
+    } else {
+        implementation(project(":gigasdk-livekit"))
+    }
 
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.activity:activity-compose:1.9.2")

@@ -1,0 +1,132 @@
+name: Android Quality
+
+on:
+  pull_request:
+    paths:
+      - ".github/CODEOWNERS"
+      - ".github/workflows/*.yml"
+      - ".pre-commit-config.yaml"
+      - "build.gradle.kts"
+      - "gradle.properties"
+      - "gradle/**"
+      - "gradlew"
+      - "gradlew.bat"
+      - "gigasdk-livekit/**"
+      - "PUBLISHING.md"
+      - "README.md"
+      - "sample/**"
+      - "server/**"
+      - "settings.gradle.kts"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/CODEOWNERS"
+      - ".github/workflows/*.yml"
+      - ".pre-commit-config.yaml"
+      - "build.gradle.kts"
+      - "gradle.properties"
+      - "gradle/**"
+      - "gradlew"
+      - "gradlew.bat"
+      - "gigasdk-livekit/**"
+      - "PUBLISHING.md"
+      - "README.md"
+      - "sample/**"
+      - "server/**"
+      - "settings.gradle.kts"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android build, lint, test, and package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - name: Build, lint, and test SDK and sample
+        run: ./gradlew :gigasdk-livekit:lintDebug :gigasdk-livekit:testDebugUnitTest :gigasdk-livekit:assemble :sample:assembleDebug
+
+      - name: Publish SDK to Maven Local
+        run: ./gradlew :gigasdk-livekit:publishToMavenLocal
+
+      - name: Build sample from Maven Local SDK
+        run: ./gradlew :sample:assembleDebug -PuseMavenLocalSdk=true
+
+  server:
+    name: Sample backend typecheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+  hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install pre-commit
+        run: python -m pip install pre-commit==4.3.0
+
+      - name: Run pre-commit
+        run: pre-commit run --all-files
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Dependency review
+        uses: actions/dependency-review-action@v4
+        continue-on-error: true

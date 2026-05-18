@@ -152,6 +152,40 @@ The default Gradle command runs `buildTestPublishToMavenLocal`: it builds the
 SDK and sample, runs the SDK debug unit tests, and publishes the SDK to Maven
 Local for downstream integration testing.
 
+To verify that the sample consumes the published artifact instead of the local
+project dependency, publish the SDK to Maven Local and rebuild the sample with
+`useMavenLocalSdk` enabled:
+
+```bash
+./gradlew :gigasdk-livekit:publishToMavenLocal
+./gradlew :sample:assembleDebug -PuseMavenLocalSdk=true
+```
+
+### Pull request quality checks
+
+Pull requests that touch the Android SDK, sample, reference backend, or release
+docs run the Android Quality workflow. The workflow builds, lints, tests, and
+publishes the SDK to Maven Local, verifies the sample against that Maven Local
+artifact, typechecks the sample backend, runs repository hygiene checks, and
+performs dependency review.
+
+Dependency review is present in CI, but GitHub Dependency Graph must be enabled
+for the repository before that check can enforce dependency policy. Until then,
+the job reports the missing repository setting without blocking the rest of the
+quality workflow.
+
+Run the same core checks locally before opening a release-sensitive PR:
+
+```bash
+./gradlew :gigasdk-livekit:lintDebug
+./gradlew :gigasdk-livekit:testDebugUnitTest
+./gradlew :gigasdk-livekit:assemble :sample:assembleDebug
+./gradlew :gigasdk-livekit:publishToMavenLocal
+./gradlew :sample:assembleDebug -PuseMavenLocalSdk=true
+cd server && npm ci && npm run typecheck
+pre-commit run --all-files
+```
+
 ### Publishing a Maven Central release
 
 Public releases are published by GitHub Actions from tags that start with `v`
