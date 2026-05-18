@@ -2,39 +2,9 @@ name: Android Quality
 
 on:
   pull_request:
-    paths:
-      - ".github/CODEOWNERS"
-      - ".github/workflows/*.yml"
-      - ".pre-commit-config.yaml"
-      - "build.gradle.kts"
-      - "gradle.properties"
-      - "gradle/**"
-      - "gradlew"
-      - "gradlew.bat"
-      - "gigasdk-livekit/**"
-      - "PUBLISHING.md"
-      - "README.md"
-      - "sample/**"
-      - "server/**"
-      - "settings.gradle.kts"
   push:
     branches:
       - main
-    paths:
-      - ".github/CODEOWNERS"
-      - ".github/workflows/*.yml"
-      - ".pre-commit-config.yaml"
-      - "build.gradle.kts"
-      - "gradle.properties"
-      - "gradle/**"
-      - "gradlew"
-      - "gradlew.bat"
-      - "gigasdk-livekit/**"
-      - "PUBLISHING.md"
-      - "README.md"
-      - "sample/**"
-      - "server/**"
-      - "settings.gradle.kts"
 
 permissions:
   contents: read

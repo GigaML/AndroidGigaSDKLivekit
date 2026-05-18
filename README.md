@@ -164,15 +164,20 @@ project dependency, publish the SDK to Maven Local and rebuild the sample with
 ### Pull request quality checks
 
 Pull requests that touch the Android SDK, sample, reference backend, or release
-docs run the Android Quality workflow. The workflow builds, lints, tests, and
-publishes the SDK to Maven Local, verifies the sample against that Maven Local
-artifact, typechecks the sample backend, runs repository hygiene checks, and
-performs dependency review.
+docs must pass the Android Quality workflow before merging. The workflow
+builds, lints, tests, and publishes the SDK to Maven Local, verifies the sample
+against that Maven Local artifact, typechecks the sample backend, runs
+repository hygiene checks, and performs dependency review.
 
 Dependency review is present in CI, but GitHub Dependency Graph must be enabled
 for the repository before that check can enforce dependency policy. Until then,
 the job reports the missing repository setting without blocking the rest of the
 quality workflow.
+
+Automated code review guidance lives in `AGENTS.md`,
+`.github/copilot-instructions.md`, and `.github/instructions/`. The intended
+GitHub ruleset for required checks, CODEOWNERS review, and automatic Copilot
+code review is documented in `.github/REVIEW_AND_MERGE_GATES.md`.
 
 Run the same core checks locally before opening a release-sensitive PR:
 
