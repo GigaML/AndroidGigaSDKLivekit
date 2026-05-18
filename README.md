@@ -29,8 +29,8 @@ dependencies {
 ```
 
 > The coordinate will resolve after the first Maven Central release is
-> published. Maintainers can still use `./gradlew :gigasdk-livekit:publishToMavenLocal`
-> for local integration testing before or between public releases.
+> published. Maintainers can use `./gradlew` for the full local build, test,
+> and Maven Local publish flow before or between public releases.
 
 Maintainers: see [PUBLISHING.md](PUBLISHING.md) for the one-time Central Portal,
 GPG signing, and GitHub Actions setup used for public releases.
@@ -145,8 +145,12 @@ The sample defaults to `http://10.0.2.2:8787` (the emulator alias for the host m
 ### Build from the terminal
 
 ```bash
-./gradlew :gigasdk-livekit:assemble :sample:assembleDebug
+./gradlew
 ```
+
+The default Gradle command runs `buildTestPublishToMavenLocal`: it builds the
+SDK and sample, runs the SDK debug unit tests, and publishes the SDK to Maven
+Local for downstream integration testing.
 
 ### Publishing a Maven Central release
 
@@ -166,6 +170,8 @@ GitHub secret setup.
 
 This installs `ai.giga:gigasdk-livekit:0.1.0` into `~/.m2/repository`, which
 downstream projects can consume by adding `mavenLocal()` to their repositories.
+Plain `./gradlew` also runs this publish step after the default build and test
+checks.
 
 ## Reference backend
 
